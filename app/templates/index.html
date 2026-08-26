@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Dashboard acadêmico para análise estatística de planilhas Excel.">
+    <title>StatLab — Dashboard Estatístico</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="Página inicial do StatLab">
+            <span class="brand-mark" aria-hidden="true">
+                <i></i><i></i><i></i>
+            </span>
+            <span>Stat<span>Lab</span></span>
+        </a>
+        <div class="topbar-copy">
+            <strong>Projeto de Estatística</strong>
+            <span>Análise descritiva de dados</span>
+        </div>
+        <span class="status-chip"><span></span> Aplicação local</span>
+    </header>
+
+    <main class="page-shell">
+        <section class="hero">
+            <div>
+                <p class="eyebrow">ANÁLISE DE DADOS SEM COMPLICAÇÃO</p>
+                <h1>Transforme planilhas em<br><em>informação visual.</em></h1>
+                <p class="hero-text">Importe seu arquivo Excel, classifique as variáveis e explore frequências, medidas estatísticas e gráficos interativos.</p>
+            </div>
+            <div class="hero-badge" aria-hidden="true">
+                <span>6</span>
+                <small>TIPOS DE<br>GRÁFICO</small>
+            </div>
+        </section>
+
+        <div id="alert" class="alert" role="status" aria-live="polite" hidden></div>
+
+        <section class="workspace-grid">
+            <aside class="control-panel card">
+                <div class="section-heading">
+                    <span class="step-number">01</span>
+                    <div><h2>Importar dados</h2><p>Arquivos Excel de até 16 MB</p></div>
+                </div>
+
+                <label id="dropZone" class="drop-zone" for="fileInput">
+                    <input id="fileInput" type="file" accept=".xls,.xlsx" hidden>
+                    <span class="upload-icon" aria-hidden="true">↥</span>
+                    <strong>Arraste sua planilha aqui</strong>
+                    <span>ou clique para selecionar</span>
+                    <small>.XLS &nbsp;·&nbsp; .XLSX</small>
+                </label>
+
+                <div id="fileInfo" class="file-info" hidden>
+                    <span class="file-symbol">X</span>
+                    <div><strong id="fileName"></strong><small id="fileMeta"></small></div>
+                    <button id="removeFile" type="button" title="Remover planilha" aria-label="Remover planilha">×</button>
+                </div>
+
+                <form id="analysisForm" hidden>
+                    <div class="section-heading compact">
+                        <span class="step-number">02</span>
+                        <div><h2>Configurar análise</h2><p>Escolha a variável e o tratamento</p></div>
+                    </div>
+
+                    <label class="field">
+                        <span>Aba da planilha</span>
+                        <select id="sheetSelect"></select>
+                    </label>
+
+                    <label class="field">
+                        <span>Variável principal</span>
+                        <select id="columnSelect" required></select>
+                    </label>
+
+                    <label class="field">
+                        <span>Classificação da variável</span>
+                        <select id="typeSelect" required>
+                            <option value="qualitative_nominal">Qualitativa nominal</option>
+                            <option value="qualitative_ordinal">Qualitativa ordinal</option>
+                            <option value="quantitative_discrete">Quantitativa discreta</option>
+                            <option value="quantitative_continuous">Quantitativa contínua</option>
+                        </select>
+                        <small id="inferenceHint">Sugestão automática baseada nos valores.</small>
+                    </label>
+
+                    <label id="ordinalField" class="field" hidden>
+                        <span>Ordem das categorias</span>
+                        <input id="ordinalOrder" type="text" placeholder="Baixo, Médio, Alto">
+                        <small>Separe as categorias por vírgula.</small>
+                    </label>
+
+                    <label id="secondaryField" class="field" hidden>
+                        <span>Variável para gráfico de pontos</span>
+                        <select id="secondaryColumn"></select>
+                        <small>Opcional; sem ela será usado o índice das linhas.</small>
+                    </label>
+
+                    <div id="groupFields" class="group-options" hidden>
+                        <label class="toggle-row">
+                            <span><strong>Agrupar em intervalos</strong><small>Distribuição com classes</small></span>
+                            <input id="groupedToggle" type="checkbox">
+                            <i aria-hidden="true"></i>
+                        </label>
+                        <label id="binsField" class="field inline" hidden>
+                            <span>Número de classes</span>
+                            <input id="binsInput" type="number" min="2" max="30" placeholder="Automático (Sturges)">
+                        </label>
+                    </div>
+
+                    <button id="analyzeButton" class="primary-button" type="submit">
+                        <span>Gerar análise</span><b aria-hidden="true">→</b>
+                    </button>
+                </form>
+            </aside>
+
+            <section class="content-column">
+                <div id="emptyState" class="empty-state card">
+                    <div class="empty-visual" aria-hidden="true">
+                        <span class="mini-bar one"></span><span class="mini-bar two"></span><span class="mini-bar three"></span><span class="mini-line"></span>
+                    </div>
+                    <p class="eyebrow">PRONTO PARA COMEÇAR</p>
+                    <h2>Seus resultados aparecerão aqui</h2>
+                    <p>Importe uma planilha Excel e configure a primeira análise no painel ao lado.</p>
+                    <div class="feature-list">
+                        <span>✓ Frequências</span><span>✓ Média, mediana e moda</span><span>✓ Quartis</span><span>✓ 6 visualizações</span>
+                    </div>
+                </div>
+
+                <div id="datasetArea" hidden>
+                    <section class="dataset-overview card">
+                        <div class="card-title-row">
+                            <div><p class="eyebrow">VISÃO DOS DADOS</p><h2>Prévia da planilha</h2></div>
+                            <div class="dataset-kpis"><span><b id="rowCount">0</b> linhas</span><span><b id="columnCount">0</b> colunas</span></div>
+                        </div>
+                        <div id="previewTable" class="table-wrap preview-table"></div>
+                    </section>
+
+                    <div id="results" hidden>
+                        <section class="results-header">
+                            <div><p class="eyebrow">RESULTADO DA ANÁLISE</p><h2 id="resultTitle">Resumo estatístico</h2><p id="resultSubtitle"></p></div>
+                            <button id="exportButton" class="secondary-button" type="button">↓ Exportar tabela CSV</button>
+                        </section>
+
+                        <section id="statsCards" class="stats-grid" aria-label="Medidas estatísticas"></section>
+
+                        <section id="groupedNotice" class="notice" hidden></section>
+
+                        <section class="card table-card">
+                            <div class="card-title-row">
+                                <div><p class="eyebrow">DISTRIBUIÇÃO</p><h2>Tabela de frequências</h2></div>
+                                <span id="tableMode" class="outline-chip"></span>
+                            </div>
+                            <div id="frequencyTable" class="table-wrap"></div>
+                            <p id="tableLimitNote" class="table-note" hidden></p>
+                        </section>
+
+                        <section class="charts-section">
+                            <div class="section-intro"><p class="eyebrow">VISUALIZAÇÕES</p><h2>Gráficos interativos</h2><p>Use o mouse para explorar, ampliar e salvar cada gráfico.</p></div>
+                            <div class="charts-grid">
+                                <article id="barCard" class="chart-card card"><h3>Gráfico de barras</h3><p>Frequência absoluta</p><div id="barChart" class="chart"></div></article>
+                                <article id="pieCard" class="chart-card card"><h3>Gráfico de pizza</h3><p>Distribuição percentual</p><div id="pieChart" class="chart"></div></article>
+                                <article id="lineCard" class="chart-card card"><h3>Gráfico de linhas</h3><p id="lineDescription">Comportamento dos dados</p><div id="lineChart" class="chart"></div></article>
+                                <article id="scatterCard" class="chart-card card"><h3>Gráfico de pontos</h3><p>Dispersão das observações</p><div id="scatterChart" class="chart"></div></article>
+                                <article id="ogiveCard" class="chart-card card"><h3>Ogiva</h3><p>Frequência acumulada</p><div id="ogiveChart" class="chart"></div></article>
+                                <article id="boxCard" class="chart-card card"><h3>Boxplot</h3><p>Quartis, dispersão e valores atípicos</p><div id="boxChart" class="chart"></div></article>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </section>
+        </section>
+    </main>
+
+    <footer>
+        <span>StatLab · Projeto acadêmico</span>
+        <span>Python + HTML + CSS + JavaScript</span>
+    </footer>
+
+    <div id="loading" class="loading-overlay" hidden>
+        <div class="loader"></div><strong>Processando os dados…</strong><span>Isso pode levar alguns segundos.</span>
+    </div>
+</body>
+</html>
+
