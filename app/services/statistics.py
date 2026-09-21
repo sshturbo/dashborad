@@ -6,7 +6,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from app.services.variable_classifier import TYPE_LABELS, VARIABLE_TYPES
+from app.services.variable_classifier import TYPE_LABELS, VARIABLE_TYPES, extract_number
 
 
 def analyze_column(
@@ -273,11 +273,15 @@ def _grouped_quantile(rows: list[dict], total: int, quantile: float) -> float:
 
 
 def _numeric_series(series: pd.Series, column: str) -> pd.Series:
-    numeric = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    # Use the same extraction rules used during automatic classification.
+    numeric = pd.Series(
+        [extract_number(value) for value in series],
+        index=series.index,
+        dtype="float64",
+    ).replace([np.inf, -np.inf], np.nan).dropna()
     if numeric.empty:
         raise ValueError(f'A coluna "{column}" não contém valores numéricos válidos.')
     return numeric
-
 
 def _categorical_series(series: pd.Series) -> pd.Series:
     return series.dropna().map(lambda value: str(value).strip() or "(vazio)")
