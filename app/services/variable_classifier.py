@@ -41,6 +41,7 @@ PERSONAL_DATA_TERMS = (
     "nome do funcionário",
     "nome do funcionario",
 )
+DATE_COLUMN_PATTERN = re.compile(r"timestamp|carimbo|\bdata\b|\bdate\b", flags=re.IGNORECASE)
 
 
 def _normalize(value: object) -> str:
@@ -49,9 +50,9 @@ def _normalize(value: object) -> str:
 
 
 def is_ignored_column(name: object) -> bool:
-    """Apply the Google Forms rules: ignore Timestamp and clearly personal fields."""
+    """Ignore date metadata and clearly personal columns in the variable picker."""
     normalized = _normalize(name)
-    if normalized == "timestamp":
+    if DATE_COLUMN_PATTERN.search(normalized):
         return True
     return any(_normalize(term) in normalized for term in PERSONAL_DATA_TERMS)
 

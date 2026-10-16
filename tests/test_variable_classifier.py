@@ -43,6 +43,8 @@ def test_ignored_google_forms_columns():
     from app.services.variable_classifier import is_ignored_column
 
     assert is_ignored_column("Timestamp")
+    assert is_ignored_column("Data da resposta")
+    assert is_ignored_column("Date")
     assert is_ignored_column("Endereço de e-mail")
     assert is_ignored_column("Nome completo")
     assert not is_ignored_column("Qual é o nome da sua cidade?")

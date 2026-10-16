@@ -6,7 +6,7 @@ O projeto usa **Python/Flask e Pandas** no backend e **HTML, CSS, JavaScript e P
 
 ## Funcionalidades
 
-- Importação de arquivos `.xls` e `.xlsx`, com seleção da aba da planilha.
+- Importação de arquivos `.xls`, `.xlsx`, `.xlsm` e `.csv`, com seleção da aba nas planilhas Excel.
 - Prévia dos dados, quantidade de linhas, colunas, valores distintos e ausentes.
 - Inferência inicial e correção manual dos tipos:
   - qualitativa nominal;
@@ -18,8 +18,9 @@ O projeto usa **Python/Flask e Pandas** no backend e **HTML, CSS, JavaScript e P
 - Número automático de classes pela regra de Sturges ou quantidade definida pelo usuário.
 - Média, mediana, moda, quartis, mínimo, máximo, amplitude, variância, desvio-padrão e coeficiente de variação.
 - Estimativas de média, mediana, moda e quartis para dados agrupados.
-- Gráficos de barras, pizza, linhas, pontos, ogiva e boxplot.
-- Exportação da tabela de frequência em CSV.
+- Gráficos de barras, pizza, linhas, pontos, ogiva e boxplot, além de blockspot e boxplot por grupo.
+- Reconhecimento de datas para mostrar a quantidade de respostas por dia.
+- Exportação de relatório completo em CSV e de cada gráfico em PNG pelo botão de imagem do gráfico.
 - Layout responsivo para computador, tablet e celular.
 
 ## Execução rápida
@@ -72,12 +73,12 @@ dashborad/
 
 ## Fluxo de funcionamento
 
-1. O navegador envia a planilha para `POST /api/datasets`.
-2. O servidor valida a extensão, gera um identificador aleatório e lê a primeira aba.
+1. O navegador envia a planilha ou o CSV para `POST /api/datasets`.
+2. O servidor valida a extensão, gera um identificador aleatório e lê a primeira aba (ou o conteúdo do CSV).
 3. O serviço de classificação inspeciona cada coluna e sugere um tipo de variável.
 4. O usuário confirma ou corrige o tipo e escolhe se quer intervalos de classe.
 5. `POST /api/analysis` calcula as medidas e devolve JSON.
-6. O JavaScript monta a tabela e os seis gráficos com Plotly.js.
+6. O JavaScript monta a tabela, os gráficos e as comparações por grupo com Plotly.js.
 
 ## API
 
@@ -100,7 +101,8 @@ Exemplo do corpo de uma análise:
   "grouped": true,
   "bins": 7,
   "ordinal_order": null,
-  "secondary_column": "Horas de estudo"
+  "secondary_column": "Horas de estudo",
+  "group_column": "Departamento"
 }
 ```
 

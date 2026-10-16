@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Dashboard acadêmico para análise estatística de planilhas Excel.">
+    <meta name="description" content="Dashboard acadêmico para análise estatística de planilhas Excel e CSV.">
     <title>StatLab — Dashboard Estatístico</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
@@ -29,10 +29,10 @@
             <div>
                 <p class="eyebrow">ANÁLISE DE DADOS SEM COMPLICAÇÃO</p>
                 <h1>Transforme planilhas em<br><em>informação visual.</em></h1>
-                <p class="hero-text">Importe seu arquivo Excel, classifique as variáveis e explore frequências, medidas estatísticas e gráficos interativos.</p>
+                <p class="hero-text">Importe um arquivo Excel ou CSV, classifique as variáveis e explore frequências, medidas estatísticas e gráficos interativos.</p>
             </div>
             <div class="hero-badge" aria-hidden="true">
-                <span>6</span>
+                <span>8</span>
                 <small>TIPOS DE<br>GRÁFICO</small>
             </div>
         </section>
@@ -43,15 +43,15 @@
             <aside class="control-panel card">
                 <div class="section-heading">
                     <span class="step-number">01</span>
-                    <div><h2>Importar dados</h2><p>Arquivos Excel de até 16 MB</p></div>
+                    <div><h2>Importar dados</h2><p>Excel ou CSV de até 16 MB</p></div>
                 </div>
 
                 <label id="dropZone" class="drop-zone" for="fileInput">
-                    <input id="fileInput" type="file" accept=".xls,.xlsx" hidden>
+                    <input id="fileInput" type="file" accept=".xls,.xlsx,.xlsm,.csv" hidden>
                     <span class="upload-icon" aria-hidden="true">↥</span>
                     <strong>Arraste sua planilha aqui</strong>
                     <span>ou clique para selecionar</span>
-                    <small>.XLS &nbsp;·&nbsp; .XLSX</small>
+                    <small>.XLS &nbsp;·&nbsp; .XLSX &nbsp;·&nbsp; .XLSM &nbsp;·&nbsp; .CSV</small>
                 </label>
 
                 <div id="fileInfo" class="file-info" hidden>
@@ -99,6 +99,12 @@
                         <small>Opcional; sem ela será usado o índice das linhas.</small>
                     </label>
 
+                    <label id="groupField" class="field" hidden>
+                        <span>Agrupar comparações por</span>
+                        <select id="groupColumn"></select>
+                        <small>Compara médias e distribuições entre categorias.</small>
+                    </label>
+
                     <div id="groupFields" class="group-options" hidden>
                         <label class="toggle-row">
                             <span><strong>Agrupar em intervalos</strong><small>Distribuição com classes</small></span>
@@ -124,9 +130,9 @@
                     </div>
                     <p class="eyebrow">PRONTO PARA COMEÇAR</p>
                     <h2>Seus resultados aparecerão aqui</h2>
-                    <p>Importe uma planilha Excel e configure a primeira análise no painel ao lado.</p>
+                    <p>Importe uma planilha Excel ou CSV e configure a primeira análise no painel ao lado.</p>
                     <div class="feature-list">
-                        <span>✓ Frequências</span><span>✓ Média, mediana e moda</span><span>✓ Quartis</span><span>✓ 6 visualizações</span>
+                        <span>✓ Frequências</span><span>✓ Média, mediana e moda</span><span>✓ Quartis</span><span>✓ Até 8 visualizações</span>
                     </div>
                 </div>
 
@@ -142,7 +148,7 @@
                     <div id="results" hidden>
                         <section class="results-header">
                             <div><p class="eyebrow">RESULTADO DA ANÁLISE</p><h2 id="resultTitle">Resumo estatístico</h2><p id="resultSubtitle"></p></div>
-                            <button id="exportButton" class="secondary-button" type="button">↓ Exportar tabela CSV</button>
+                            <button id="exportButton" class="secondary-button" type="button">↓ Exportar relatório CSV</button>
                         </section>
 
                         <section id="statsCards" class="stats-grid" aria-label="Medidas estatísticas"></section>
@@ -167,6 +173,8 @@
                                 <article id="scatterCard" class="chart-card card"><h3>Gráfico de pontos</h3><p>Dispersão das observações</p><div id="scatterChart" class="chart"></div></article>
                                 <article id="ogiveCard" class="chart-card card"><h3>Ogiva</h3><p>Frequência acumulada</p><div id="ogiveChart" class="chart"></div></article>
                                 <article id="boxCard" class="chart-card card"><h3>Boxplot</h3><p>Quartis, dispersão e valores atípicos</p><div id="boxChart" class="chart"></div></article>
+                                <article id="groupMeanCard" class="chart-card card" hidden><h3>Blockspot — médias por grupo</h3><p>Compara cada categoria nas variáveis quantitativas.</p><div id="groupMeanChart" class="chart"></div></article>
+                                <article id="groupBoxCard" class="chart-card card" hidden><h3>Boxplot por grupo</h3><p>Distribuição da variável quantitativa em cada categoria.</p><div id="groupBoxChart" class="chart"></div></article>
                             </div>
                         </section>
                     </div>

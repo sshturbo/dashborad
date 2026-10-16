@@ -14,6 +14,6 @@ class Config:
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH_MB", "16")) * 1024 * 1024
     MAX_DATASET_ROWS = int(os.getenv("MAX_DATASET_ROWS", "100000"))
     UPLOAD_FOLDER = BASE_DIR / "instance" / "uploads"
-    ALLOWED_EXTENSIONS = {"xls", "xlsx"}
+    ALLOWED_EXTENSIONS = {"xls", "xlsx", "xlsm", "csv"}
     JSON_SORT_KEYS = False
 

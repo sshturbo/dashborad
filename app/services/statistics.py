@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable
+import re
 
 import numpy as np
 import pandas as pd
 
-from app.services.variable_classifier import TYPE_LABELS, VARIABLE_TYPES, extract_number
+from app.services.variable_classifier import (
+    TYPE_LABELS,
+    VARIABLE_TYPES,
+    describe_columns,
+    extract_number,
+)
 
 
 def analyze_column(
@@ -17,6 +22,7 @@ def analyze_column(
     bins: int | None = None,
     ordinal_order: list[str] | None = None,
     secondary_column: str | None = None,
+    group_column: str | None = None,
 ) -> dict:
     if column not in frame.columns:
         raise ValueError("A coluna selecionada não existe.")
@@ -31,6 +37,16 @@ def analyze_column(
 
     if grouped and not is_quantitative:
         raise ValueError("Intervalos de classe são aplicáveis apenas a variáveis quantitativas.")
+
+    if group_column:
+        if not is_quantitative:
+            raise ValueError("Comparações por categoria estão disponíveis para variáveis quantitativas.")
+        if group_column not in frame.columns or group_column == column:
+            raise ValueError("A coluna de agrupamento selecionada não é válida.")
+        descriptions = {item["name"]: item for item in describe_columns(frame)}
+        group_description = descriptions.get(group_column)
+        if not group_description or group_description["inferred_type"].startswith("quantitative_"):
+            raise ValueError("Escolha uma coluna categórica para agrupar os resultados.")
 
     excluded_count = int(len(series) - len(clean))
     analysis = {
@@ -67,6 +83,7 @@ def analyze_column(
         grouped=grouped,
         frequency=analysis["frequency_table"],
         secondary_column=secondary_column,
+        group_column=group_column,
     )
     return analysis
 
@@ -215,6 +232,7 @@ def chart_payload(
     grouped: bool,
     frequency: list[dict],
     secondary_column: str | None,
+    group_column: str | None,
 ) -> dict:
     max_points = 5000
     payload = {
@@ -228,7 +246,17 @@ def chart_payload(
         "box_values": [],
         "scatter_x_label": "Índice",
         "scatter_y_label": column,
+        "date_x": [],
+        "date_y": [],
+        "date_column": None,
+        "group_comparison": None,
+        "group_heatmap": None,
     }
+
+    date_x, date_y, date_column = _daily_response_counts(frame)
+    payload["date_x"] = date_x
+    payload["date_y"] = date_y
+    payload["date_column"] = date_column
 
     if grouped:
         payload["cumulative_x"] = [frequency[0]["lower"]] + [row["upper"] for row in frequency]
@@ -244,14 +272,121 @@ def chart_payload(
         payload["box_values"] = payload["series_y"]
 
         if secondary_column and secondary_column in frame.columns and secondary_column != column:
-            pair = frame[[column, secondary_column]].apply(pd.to_numeric, errors="coerce").dropna().iloc[:max_points]
+            pair = pd.DataFrame(
+                {
+                    "x": frame[column].map(extract_number),
+                    "y": frame[secondary_column].map(extract_number),
+                },
+                index=frame.index,
+            ).dropna().iloc[:max_points]
             if not pair.empty:
-                payload["series_x"] = [_finite(float(value)) for value in pair[column]]
-                payload["series_y"] = [_finite(float(value)) for value in pair[secondary_column]]
+                payload["series_x"] = [_finite(float(value)) for value in pair["x"]]
+                payload["series_y"] = [_finite(float(value)) for value in pair["y"]]
                 payload["scatter_x_label"] = column
                 payload["scatter_y_label"] = secondary_column
 
+    if group_column:
+        payload["group_comparison"] = _group_comparison_payload(frame, column, group_column)
+        payload["group_heatmap"] = _group_heatmap_payload(frame, column, group_column)
+
     return payload
+
+
+def _daily_response_counts(frame: pd.DataFrame) -> tuple[list[str], list[int], str | None]:
+    """Find a date-like column and count responses by calendar day."""
+    candidates = [
+        name for name in frame.columns
+        if re.search(r"timestamp|carimbo|data|date", str(name), flags=re.IGNORECASE)
+    ]
+    for column in candidates:
+        values = frame[column]
+        if pd.api.types.is_numeric_dtype(values):
+            parsed = pd.to_datetime(values, unit="D", origin="1899-12-30", errors="coerce")
+        else:
+            parsed = pd.to_datetime(values, dayfirst=True, errors="coerce")
+        available = int(values.notna().sum())
+        valid = parsed.notna()
+        if available and int(valid.sum()) >= max(1, math.ceil(available * 0.7)):
+            daily = parsed[valid].dt.strftime("%Y-%m-%d").value_counts().sort_index()
+            return daily.index.tolist(), [int(value) for value in daily.tolist()], str(column)
+    return [], [], None
+
+
+def _normalized_groups(series: pd.Series) -> tuple[pd.Series, list[str], set[str]]:
+    labels = series.map(lambda value: "(vazio)" if pd.isna(value) else str(value).strip() or "(vazio)")
+    counts = labels.value_counts(dropna=False, sort=True)
+    common = [str(value) for value in counts.index[:12]]
+    overflow = set(str(value) for value in counts.index[12:])
+    display = common + (["Demais categorias"] if overflow else [])
+    return labels, display, overflow
+
+
+def _group_comparison_payload(frame: pd.DataFrame, column: str, group_column: str) -> dict:
+    labels, display_groups, overflow = _normalized_groups(frame[group_column])
+    numeric = frame[column].map(extract_number)
+    comparison = pd.DataFrame({"group": labels, "value": numeric}).dropna(subset=["value"])
+    common = set(display_groups[:12])
+    if overflow:
+        comparison["display_group"] = comparison["group"].map(
+            lambda value: value if value in common else "Demais categorias"
+        )
+    else:
+        comparison["display_group"] = comparison["group"]
+
+    rows = []
+    for group in display_groups:
+        values = comparison.loc[comparison["display_group"] == group, "value"].astype(float)
+        if values.empty:
+            continue
+        rows.append(
+            {
+                "label": group,
+                "count": int(len(values)),
+                "mean": _finite(float(values.mean())),
+                "values": [_finite(float(value)) for value in values.iloc[:5000]],
+            }
+        )
+    return {"column": group_column, "groups": rows}
+
+
+def _group_heatmap_payload(frame: pd.DataFrame, selected_column: str, group_column: str) -> dict:
+    labels, display_groups, overflow = _normalized_groups(frame[group_column])
+    descriptions = describe_columns(frame)
+    numeric_columns = [
+        item["name"] for item in descriptions
+        if item["inferred_type"].startswith("quantitative_")
+    ]
+    if selected_column not in numeric_columns:
+        numeric_columns.insert(0, selected_column)
+    numeric_columns = list(dict.fromkeys(numeric_columns))[:10]
+    if selected_column not in numeric_columns:
+        numeric_columns[-1] = selected_column
+
+    common = set(display_groups[:12])
+    grouped_labels = labels.map(lambda value: value if value in common else "Demais categorias") if overflow else labels
+    heatmap_labels = display_groups + ["Geral"]
+    matrix: list[list[float | None]] = []
+
+    for group in display_groups:
+        mask = grouped_labels == group
+        row = []
+        for name in numeric_columns:
+            values = frame[name].map(extract_number)
+            selected = values[mask].dropna()
+            row.append(_finite(float(selected.mean())) if not selected.empty else None)
+        matrix.append(row)
+
+    overall = []
+    for name in numeric_columns:
+        values = frame[name].map(extract_number).dropna()
+        overall.append(_finite(float(values.mean())) if not values.empty else None)
+    matrix.append(overall)
+    return {
+        "group_column": group_column,
+        "metric_labels": numeric_columns,
+        "group_labels": heatmap_labels,
+        "values": matrix,
+    }
 
 
 def sturges_bins(sample_size: int) -> int:
