@@ -30,11 +30,11 @@ def save_spreadsheet(
 ) -> tuple[str, Path, str]:
     original_name = secure_filename(uploaded_file.filename or "")
     if not original_name or "." not in original_name:
-        raise SpreadsheetError("Selecione um arquivo .xls ou .xlsx válido.")
+        raise SpreadsheetError("Selecione um arquivo .xls, .xlsx, .xlsm ou .csv válido.")
 
     extension = original_name.rsplit(".", 1)[1].lower()
     if extension not in allowed_extensions:
-        raise SpreadsheetError("Formato não aceito. Use uma planilha .xls ou .xlsx.")
+        raise SpreadsheetError("Formato não aceito. Use uma planilha .xls, .xlsx, .xlsm ou .csv.")
 
     dataset_id = uuid4().hex
     destination = upload_folder / f"{dataset_id}.{extension}"
@@ -47,12 +47,14 @@ def find_dataset(dataset_id: str, upload_folder: Path) -> Path:
         raise DatasetNotFoundError("Conjunto de dados não encontrado.")
 
     matches = list(upload_folder.glob(f"{dataset_id}.*"))
-    if len(matches) != 1 or matches[0].suffix.lower() not in {".xls", ".xlsx"}:
+    if len(matches) != 1 or matches[0].suffix.lower() not in {".xls", ".xlsx", ".xlsm", ".csv"}:
         raise DatasetNotFoundError("Conjunto de dados não encontrado ou expirado.")
     return matches[0]
 
 
 def inspect_workbook(path: Path) -> list[str]:
+    if path.suffix.lower() == ".csv":
+        return ["Dados"]
     try:
         with pd.ExcelFile(path) as workbook:
             return list(workbook.sheet_names)
@@ -72,7 +74,12 @@ def load_sheet(path: Path, sheet_name: str | None, max_rows: int) -> tuple[pd.Da
         raise SpreadsheetError("A aba selecionada não existe na planilha.")
 
     try:
-        frame = pd.read_excel(path, sheet_name=selected_sheet, nrows=max_rows + 1)
+        if path.suffix.lower() == ".csv":
+            frame = _read_csv(path, max_rows + 1)
+        else:
+            frame = pd.read_excel(path, sheet_name=selected_sheet, nrows=max_rows + 1)
+    except SpreadsheetError:
+        raise
     except Exception as exc:
         raise SpreadsheetError("Não foi possível ler os dados da aba selecionada.") from exc
 
@@ -86,6 +93,19 @@ def load_sheet(path: Path, sheet_name: str | None, max_rows: int) -> tuple[pd.Da
     frame = frame.copy()
     frame.columns = _unique_column_names(frame.columns)
     return frame, selected_sheet
+
+
+def _read_csv(path: Path, max_rows: int) -> pd.DataFrame:
+    """Read common Brazilian CSV exports, including UTF-8 BOM and semicolons."""
+    try:
+        return pd.read_csv(path, sep=None, engine="python", encoding="utf-8-sig", nrows=max_rows)
+    except UnicodeDecodeError:
+        try:
+            return pd.read_csv(path, sep=None, engine="python", encoding="latin-1", nrows=max_rows)
+        except Exception as exc:
+            raise SpreadsheetError("Não foi possível ler o CSV. Verifique o delimitador e a codificação do arquivo.") from exc
+    except Exception as exc:
+        raise SpreadsheetError("Não foi possível ler o CSV. Verifique o delimitador e a codificação do arquivo.") from exc
 
 
 def dataset_summary(frame: pd.DataFrame, sheet_name: str, preview_rows: int = 8) -> dict:

@@ -1,16 +1,16 @@
 :root {
-    --ink: #18201e;
-    --muted: #66716d;
-    --paper: #f5f3ed;
-    --card: #fffefa;
-    --line: #dddcd4;
-    --green: #1c6b52;
-    --green-dark: #124936;
-    --lime: #c8ed73;
-    --lime-soft: #eef8d6;
-    --orange: #e98b54;
-    --blue: #5c8dba;
-    --shadow: 0 12px 35px rgba(35, 49, 44, .07);
+    --ink: #10131a;
+    --muted: #5a6478;
+    --paper: #f4f7fc;
+    --card: #ffffff;
+    --line: #d9e1ee;
+    --green: #1e5aa8;
+    --green-dark: #0b2a52;
+    --lime: #ff6a00;
+    --lime-soft: #fff3ea;
+    --orange: #ff6a00;
+    --blue: #1e5aa8;
+    --shadow: 0 12px 35px rgba(16, 19, 26, .07);
     --radius: 18px;
 }
 
@@ -26,7 +26,7 @@ body {
 
 button, input, select { font: inherit; }
 button, label[for], select { cursor: pointer; }
-button:focus-visible, input:focus-visible, select:focus-visible, .drop-zone:focus-within { outline: 3px solid rgba(28, 107, 82, .24); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible, .drop-zone:focus-within { outline: 3px solid rgba(30, 90, 168, .24); outline-offset: 2px; }
 
 .topbar {
     height: 76px;

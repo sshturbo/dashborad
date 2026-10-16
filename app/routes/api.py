@@ -104,6 +104,7 @@ def analyze_dataset():
             bins=int(bins) if bins not in (None, "") else None,
             ordinal_order=payload.get("ordinal_order"),
             secondary_column=payload.get("secondary_column"),
+            group_column=payload.get("group_column"),
         )
         return jsonify({"sheet": selected_sheet, **result})
     except DatasetNotFoundError as exc:
