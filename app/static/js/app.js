@@ -35,6 +35,18 @@ const chartItems = [
     ["box", "Caixa", "cbox"], ["su", "Medidas sem classe", null], ["sg", "Medidas com classe", null],
 ];
 const chartPalette = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316", "#14b8a6", "#6366f1"];
+const variableTypeLabels = {
+    qualitative_nominal: "Qualitativa nominal",
+    qualitative_ordinal: "Qualitativa ordinal",
+    quantitative_discrete: "Quantitativa discreta",
+    quantitative_continuous: "Quantitativa contínua",
+};
+const responseTypeDescriptions = {
+    qualitative_nominal: "resposta qualitativa, com categorias sem ordem",
+    qualitative_ordinal: "resposta qualitativa, com categorias ordenáveis",
+    quantitative_discrete: "resposta quantitativa discreta, com inteiros ou contagens",
+    quantitative_continuous: "resposta quantitativa contínua, com medidas ou valores decimais",
+};
 
 document.addEventListener("DOMContentLoaded", initialize);
 
@@ -80,7 +92,10 @@ function bindEvents() {
     window.addEventListener("resize", resizeActiveChart);
     elements.typeSelect.addEventListener("change", () => {
         const column = selectedColumn();
-        if (column) state.typeOverrides[column.name] = elements.typeSelect.value;
+        if (column) {
+            state.typeOverrides[column.name] = elements.typeSelect.value;
+            updateInferenceHint(column, elements.typeSelect.value);
+        }
         syncTypeControls();
         runAnalysis();
     });
@@ -255,9 +270,18 @@ function syncVariableConfiguration() {
     elements.typeSelect.value = type;
     const order = state.orderOverrides[column.name] || column.inferred_order || [];
     elements.ordinalOrder.value = order.join(", ");
-    elements.inferenceHint.textContent = `Sugestão automática: ${column.type_label}. ${formatInteger(column.unique_count)} valor(es) distinto(s).`;
+    updateInferenceHint(column, type);
     populateComparisonColumns(column);
     syncTypeControls();
+}
+
+function updateInferenceHint(column, appliedType) {
+    const suggestedLabel = column.type_label || variableTypeLabels[column.inferred_type] || "Não identificado";
+    const appliedLabel = variableTypeLabels[appliedType] || suggestedLabel;
+    const responseDescription = responseTypeDescriptions[column.inferred_type] || "resposta ainda não classificada";
+    const manualAdjustment = appliedType !== column.inferred_type ? " (ajustada manualmente)" : "";
+
+    elements.inferenceHint.textContent = `Pergunta selecionada: “${column.name}”. Tipo estatístico inferido pelas respostas: ${responseDescription}. Sugestão: ${suggestedLabel}; classificação usada: ${appliedLabel}${manualAdjustment}. A planilha não informa o formato original da pergunta.`;
 }
 
 function populateComparisonColumns(column) {

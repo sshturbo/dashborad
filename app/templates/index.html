@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Painel estatístico das respostas dos colaboradores da Fábrica de Luz.">
     <title>Dashboard de TI — Fábrica de Luz</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='variable-type-2026-10-18') }}">
     <script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js" defer></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='chart-list-2026-10-18') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='variable-type-2026-10-18') }}" defer></script>
 </head>
 <body>
     <div class="app-shell">
@@ -27,7 +27,7 @@
                     <label class="fld" id="sheetField"><span class="lb">Aba da planilha</span><select id="sheetSelect"></select></label>
                     <label class="fld variable-filter"><span class="lb">Variável da pesquisa</span><select id="gf" disabled></select></label>
                     <label class="fld"><span class="lb">Classificação da variável</span>
-                        <select id="typeSelect">
+                        <select id="typeSelect" aria-describedby="inferenceHint">
                             <option value="qualitative_nominal">Qualitativa nominal</option>
                             <option value="qualitative_ordinal">Qualitativa ordinal</option>
                             <option value="quantitative_discrete">Quantitativa discreta</option>
@@ -38,7 +38,7 @@
                     <label class="fld" id="secondaryField" hidden><span class="lb">Eixo Y do gráfico de pontos</span><select id="secondaryColumn"></select></label>
                     <label class="fld" id="groupField" hidden><span class="lb">Comparar por grupo</span><select id="groupColumn"></select></label>
                 </div>
-                <p class="hintline" id="inferenceHint"></p>
+                <p class="hintline variable-type-hint" id="inferenceHint" aria-live="polite"></p>
                 <details class="advanced-settings"><summary>Configurar intervalos de classe</summary>
                 <label class="toggle-option"><input id="groupedToggle" type="checkbox"><span>Definir número de classes manualmente</span></label>
                 <label class="fld bins-field" id="binsField" hidden><span class="lb">Número de classes</span><input id="binsInput" type="number" min="2" max="30" placeholder="Automático (Sturges)"></label>
