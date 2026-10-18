@@ -67,6 +67,6 @@ Sugestão para uma apresentação de 12 a 15 minutos, com participação equilib
 
 - Manter a planilha de exemplo e o projeto no mesmo computador.
 - Testar a instalação e a porta antes da aula.
-- Levar capturas dos resultados porque Plotly.js é carregado por internet.
+- Levar capturas dos resultados porque Apache ECharts é carregado por internet.
 - Ter um integrante responsável por operar o sistema e outro pronto para continuar a explicação durante qualquer espera.
 

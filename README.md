@@ -2,25 +2,26 @@
 
 Aplicação web acadêmica para importar planilhas Excel, identificar tipos de variáveis e produzir análise estatística descritiva com tabelas e gráficos interativos.
 
-O projeto usa **Python/Flask e Pandas** no backend e **HTML, CSS, JavaScript e Plotly.js** no frontend. A separação em camadas permite que seis integrantes trabalhem em paralelo sem concentrar toda a lógica em um único arquivo.
+O projeto usa **Python/Flask e Pandas** no backend e **HTML, CSS, JavaScript e Apache ECharts** no frontend. A separação em camadas permite que seis integrantes trabalhem em paralelo sem concentrar toda a lógica em um único arquivo.
 
 ## Funcionalidades
 
 - Importação de arquivos `.xls`, `.xlsx`, `.xlsm` e `.csv`, com seleção da aba nas planilhas Excel.
-- Prévia dos dados, quantidade de linhas, colunas, valores distintos e ausentes.
+- Quantidade de linhas e colunas, valores distintos e ausentes.
 - Inferência inicial e correção manual dos tipos:
   - qualitativa nominal;
   - qualitativa ordinal, com ordem configurável;
   - quantitativa discreta;
   - quantitativa contínua.
-- Tabela de frequências absoluta (`fi`), relativa (`fr`), percentual e acumulada.
+- Tabela agrupada de frequências e tabela geral com todos os dados originais da planilha.
 - Dados quantitativos sem intervalo ou agrupados em intervalos de classe.
 - Número automático de classes pela regra de Sturges ou quantidade definida pelo usuário.
 - Média, mediana, moda, quartis, mínimo, máximo, amplitude, variância, desvio-padrão e coeficiente de variação.
 - Estimativas de média, mediana, moda e quartis para dados agrupados.
-- Gráficos de barras, pizza, linhas, pontos, ogiva e boxplot, além de blockspot e boxplot por grupo.
+- Gráficos de barras, colunas, rosca, pizza, linhas, pontos, ogiva, mapa de calor e boxplot por grupo, além das tabelas agrupada e geral.
 - Reconhecimento de datas para mostrar a quantidade de respostas por dia.
-- Exportação de relatório completo em CSV e de cada gráfico em PNG pelo botão de imagem do gráfico.
+- Exportação em CSV e PNG pelo botão **Baixar** de cada visualização.
+- Importação inicial dedicada à planilha, com abertura automática do dashboard e configuração das variáveis acima dos gráficos.
 - Layout responsivo para computador, tablet e celular.
 
 ## Execução rápida
@@ -35,7 +36,7 @@ cp .env.example .env
 python run.py
 ```
 
-Acesse `http://127.0.0.1:5000`. Os gráficos usam Plotly.js por CDN, portanto o navegador precisa de internet para carregar essa biblioteca. O processamento da planilha permanece local.
+Acesse `http://127.0.0.1:5000`. Os gráficos usam Apache ECharts por CDN, portanto o navegador precisa de internet para carregar essa biblioteca. O processamento da planilha permanece local.
 
 Para gerar uma planilha de demonstração:
 
@@ -54,7 +55,7 @@ dashborad/
 │   ├── services/               # Importação, classificação e estatística
 │   ├── static/
 │   │   ├── css/style.css       # Identidade visual e responsividade
-│   │   └── js/app.js           # Estado da interface e Plotly
+│   │   └── js/app.js           # Estado da interface e gráficos ECharts
 │   ├── templates/index.html    # Dashboard
 │   ├── __init__.py             # Application factory
 │   └── config.py               # Limites e variáveis de ambiente
@@ -78,7 +79,7 @@ dashborad/
 3. O serviço de classificação inspeciona cada coluna e sugere um tipo de variável.
 4. O usuário confirma ou corrige o tipo e escolhe se quer intervalos de classe.
 5. `POST /api/analysis` calcula as medidas e devolve JSON.
-6. O JavaScript monta a tabela, os gráficos e as comparações por grupo com Plotly.js.
+6. O JavaScript monta a tabela, os gráficos e as comparações por grupo com Apache ECharts.
 
 ## API
 
@@ -86,7 +87,8 @@ dashborad/
 |---|---|---|
 | `GET` | `/api/health` | Verificar se o serviço está ativo |
 | `POST` | `/api/datasets` | Importar uma planilha no campo multipart `file` |
-| `GET` | `/api/datasets/<id>?sheet=Aba` | Ler metadados e prévia de uma aba |
+| `GET` | `/api/datasets/<id>?sheet=Aba` | Ler metadados de uma aba |
+| `GET` | `/api/datasets/<id>/rows?sheet=Aba&offset=0&limit=100` | Ler uma página dos dados originais |
 | `DELETE` | `/api/datasets/<id>` | Excluir o arquivo temporário |
 | `POST` | `/api/analysis` | Executar a análise estatística |
 

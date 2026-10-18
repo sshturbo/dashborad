@@ -11,7 +11,7 @@ O objetivo desta divisão é dar responsabilidade clara a cada pessoa sem criar 
 | 3 — Estatística | Regras matemáticas | Frequências, classes, média, mediana, moda, quartis, dispersão e conferência manual |
 | 4 — Backend | API e organização Python | Rotas Flask, tratamento de erros, configuração e testes de integração |
 | 5 — Frontend | Experiência e acessibilidade | HTML, estado da tela, formulários, tabelas, exportação e responsividade |
-| 6 — Visualização e qualidade | Gráficos, testes e documentação | Plotly, consistência visual, testes, revisão do relatório e roteiro da demonstração |
+| 6 — Visualização e qualidade | Gráficos, testes e documentação | Apache ECharts, consistência visual, testes, revisão do relatório e roteiro da demonstração |
 
 Os números são apenas posições. O grupo deve registrar os nomes reais na tabela abaixo:
 
@@ -102,7 +102,7 @@ Uma tarefa só está pronta quando:
 | Classificação automática incorreta | Exigir conferência humana e documentar o dicionário de dados |
 | Fórmula estatística divergente da aula | Comparar com o material do professor e registrar o método adotado |
 | Planilha grande travar o navegador | Limitar pontos visuais e manter cálculos no backend |
-| CDN indisponível na apresentação | Levar capturas de tela ou baixar Plotly localmente antes do dia |
+| CDN indisponível na apresentação | Levar capturas de tela ou baixar Apache ECharts localmente antes do dia |
 | Conflitos no código | Branches pequenas, revisão e integração frequente |
 | Dados pessoais no repositório | Usar dados fictícios ou anonimizados |
 

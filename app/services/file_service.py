@@ -108,19 +108,21 @@ def _read_csv(path: Path, max_rows: int) -> pd.DataFrame:
         raise SpreadsheetError("Não foi possível ler o CSV. Verifique o delimitador e a codificação do arquivo.") from exc
 
 
-def dataset_summary(frame: pd.DataFrame, sheet_name: str, preview_rows: int = 8) -> dict:
-    preview = frame.head(preview_rows).replace({np.nan: None})
-    records = [
-        {str(key): _serialize_cell(value) for key, value in row.items()}
-        for row in preview.to_dict(orient="records")
-    ]
+def dataset_summary(frame: pd.DataFrame, sheet_name: str) -> dict:
     return {
         "sheet": sheet_name,
         "row_count": int(len(frame)),
         "column_count": int(len(frame.columns)),
         "columns": describe_columns(frame),
-        "preview": records,
     }
+
+
+def serialize_rows(frame: pd.DataFrame) -> list[list[object]]:
+    """Serialize sheet rows in their original column order for the raw data table."""
+    return [
+        [_serialize_cell(value) for value in row]
+        for row in frame.itertuples(index=False, name=None)
+    ]
 
 
 def _unique_column_names(columns) -> list[str]:

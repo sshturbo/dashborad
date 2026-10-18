@@ -13,6 +13,7 @@ from app.services.file_service import (
     inspect_workbook,
     load_sheet,
     save_spreadsheet,
+    serialize_rows,
 )
 from app.services.statistics import analyze_column
 
@@ -68,6 +69,35 @@ def get_dataset(dataset_id: str):
     except DatasetNotFoundError as exc:
         return _error(str(exc), 404)
     except (SpreadsheetError, ValueError) as exc:
+        return _error(str(exc), 400)
+
+
+@api_bp.get("/datasets/<dataset_id>/rows")
+def get_dataset_rows(dataset_id: str):
+    try:
+        offset = int(request.args.get("offset", "0"))
+        limit = int(request.args.get("limit", "100"))
+        if offset < 0 or limit < 1 or limit > 5000:
+            return _error("A página solicitada é inválida.", 400)
+
+        path = find_dataset(dataset_id, Path(current_app.config["UPLOAD_FOLDER"]))
+        frame, selected_sheet = load_sheet(
+            path,
+            request.args.get("sheet"),
+            current_app.config["MAX_DATASET_ROWS"],
+        )
+        page = frame.iloc[offset:offset + limit]
+        return jsonify({
+            "sheet": selected_sheet,
+            "columns": [str(column) for column in frame.columns],
+            "records": serialize_rows(page),
+            "row_count": int(len(frame)),
+            "offset": offset,
+            "limit": limit,
+        })
+    except DatasetNotFoundError as exc:
+        return _error(str(exc), 404)
+    except (SpreadsheetError, ValueError, TypeError) as exc:
         return _error(str(exc), 400)
 
 
