@@ -13,6 +13,7 @@ const state = {
     downloads: [],
     activeChart: 0,
     chartAvailability: null,
+    responsiveMobile: null,
     activeTab: "up",
     requestId: 0,
     tableRequestId: 0,
@@ -89,7 +90,15 @@ function bindEvents() {
         syncVariableConfiguration();
         runAnalysis();
     });
-    window.addEventListener("resize", resizeActiveChart);
+    state.responsiveMobile = window.matchMedia("(max-width: 640px)").matches;
+    window.addEventListener("resize", () => {
+        const mobile = window.matchMedia("(max-width: 640px)").matches;
+        if (mobile !== state.responsiveMobile) {
+            state.responsiveMobile = mobile;
+            if (state.analysis) renderCharts(state.analysis);
+        }
+        resizeActiveChart();
+    });
     elements.typeSelect.addEventListener("change", () => {
         const column = selectedColumn();
         if (column) {
@@ -432,6 +441,17 @@ function syncChartList(availability) {
         const button = elements.pk.querySelector(`button[data-i="${index}"]`);
         if (button) button.hidden = availability[key] === false;
     });
+    const groups = [...elements.pk.querySelectorAll(".visualization-group")];
+    groups.forEach((group, index) => {
+        const nextGroup = groups[index + 1] || null;
+        let sibling = group.nextElementSibling;
+        let hasVisibleChart = false;
+        while (sibling && sibling !== nextGroup) {
+            if (sibling.matches('button[data-i]') && !sibling.hidden) hasVisibleChart = true;
+            sibling = sibling.nextElementSibling;
+        }
+        group.hidden = !hasVisibleChart;
+    });
     const activeKey = chartItems[state.activeChart]?.[0];
     if (availability[activeKey] === false) {
         const firstAvailable = chartItems.findIndex(([key]) => availability[key] !== false);
@@ -525,28 +545,31 @@ function renderCharts(analysis) {
     const quantitative = analysis.variable_type.startsWith("quantitative_");
     const scatter = scatterChartPayload(analysis);
     if (quantitative && scatter?.series_x?.length) {
+        const compact = window.matchMedia("(max-width: 640px)").matches;
         const points = scatter.series_x.map((x, index) => [Number(x), Number(scatter.series_y[index])]);
         const name = scatter.scatter_y_label + " por " + scatter.scatter_x_label;
+        const axisContext = document.getElementById("dotAxisContext");
+        if (axisContext) axisContext.textContent = `Eixo X: ${scatter.scatter_x_label}. Eixo Y: ${scatter.scatter_y_label}. Cada ponto representa uma resposta.`;
         makeChart("cdot", {
-            ...baseChartOption([name]),
+            ...baseChartOption([compact ? "Relação entre variáveis" : name]),
             tooltip: chartTooltip("item", null, (point) => chartTooltipLines(name, [
                 String(scatter.scatter_x_label) + ": " + formatNumber(point.value[0]),
                 String(scatter.scatter_y_label) + ": " + formatNumber(point.value[1]),
             ])),
-            grid: { left: 56, right: 24, top: 42, bottom: 54, containLabel: true },
+            grid: { left: compact ? 42 : 56, right: 18, top: 42, bottom: compact ? 54 : 54, containLabel: true },
             xAxis: {
                 ...chartValueAxis(),
-                name: scatter.scatter_x_label,
+                name: compact ? "Eixo X" : scatter.scatter_x_label,
                 nameLocation: "middle",
-                nameGap: 34,
-                axisLabel: { color: CHART_TEXT, fontSize: 11, formatter: (value) => formatNumber(value) },
+                nameGap: compact ? 24 : 34,
+                axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, formatter: (value) => formatNumber(value) },
             },
             yAxis: {
                 ...chartValueAxis(),
-                name: scatter.scatter_y_label,
+                name: compact ? "Eixo Y" : scatter.scatter_y_label,
                 nameLocation: "middle",
-                nameGap: 44,
-                axisLabel: { color: CHART_TEXT, fontSize: 11, formatter: (value) => formatNumber(value) },
+                nameGap: compact ? 28 : 44,
+                axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, formatter: (value) => formatNumber(value) },
             },
             series: [{
                 name,
@@ -717,7 +740,8 @@ function renderColumnChart(rows, distributionLabel) {
 }
 
 function renderPieChart(frequencyRows, mode = "donut") {
-    const rows = topFrequencies((frequencyRows || []).map((row) => [row.value, row.frequency]));
+    const mobile = window.matchMedia("(max-width: 640px)").matches;
+    const rows = topFrequencies((frequencyRows || []).map((row) => [row.value, row.frequency]), mobile ? 7 : 12);
     const labels = rows.map((row) => String(row[0]));
     const total = (frequencyRows || []).reduce((sum, row) => sum + (Number(row.frequency) || 0), 0);
     const isDonut = mode === "donut";
@@ -773,9 +797,9 @@ function renderPieChart(frequencyRows, mode = "donut") {
             query: { maxWidth: 500 },
             option: {
                 series: [{
-                    radius: isDonut ? ["28%", "50%"] : "50%",
-                    label: { fontSize: 9, edgeDistance: 6, width: 78, overflow: "truncate" },
-                    labelLine: { length: 7, length2: 8 },
+                    radius: isDonut ? ["30%", "46%"] : "46%",
+                    label: { fontSize: 9, edgeDistance: 4, width: 104, overflow: "break" },
+                    labelLine: { length: 7, length2: 10 },
                 }],
             },
         }],
@@ -1108,6 +1132,7 @@ function renderBlockspot(heatmap) {
 }
 
 function renderBoxplot(analysis) {
+    const compact = window.matchMedia("(max-width: 640px)").matches;
     const comparison = analysis.charts.group_comparison;
     const series = [["Geral", analysis.charts.box_values || []]];
     if (comparison?.groups?.length) comparison.groups.forEach((group) => series.push([group.label, group.values || []]));
@@ -1116,6 +1141,13 @@ function renderBoxplot(analysis) {
     if (!summaries.length) return;
 
     const names = summaries.map((summary) => String(summary.label));
+    const axisContext = document.getElementById("boxAxisContext");
+    if (axisContext) {
+        axisContext.hidden = !compact;
+        axisContext.textContent = compact
+            ? `Eixo X: ${comparison?.column || "Grupo"}. Eixo Y: ${analysis.column}.`
+            : "";
+    }
     const legendNames = ["Distribuição", "Média"];
     const itemAt = (params) => summaries[Number(params.dataIndex)] || summaries[0];
     makeChart("cbox", {
@@ -1132,20 +1164,20 @@ function renderBoxplot(analysis) {
                 "Média = " + formatNumber(summary.mean),
             ]);
         }),
-        grid: { left: 58, right: 24, top: 42, bottom: 52, containLabel: true },
+        grid: { left: compact ? 46 : 58, right: 18, top: 42, bottom: compact ? 48 : 52, containLabel: true },
         xAxis: {
             ...chartCategoryAxis(names),
-            name: comparison?.column || "Grupo",
+            name: compact ? "Grupo" : comparison?.column || "Grupo",
             nameLocation: "middle",
-            nameGap: 34,
-            axisLabel: { color: CHART_TEXT, fontSize: 11, interval: 0, rotate: names.length > 8 ? 20 : 0 },
+            nameGap: compact ? 24 : 34,
+            axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, interval: 0, rotate: names.length > 8 ? 20 : 0, hideOverlap: true },
         },
         yAxis: {
             ...chartValueAxis(),
-            name: analysis.column,
+            name: compact ? "Valor" : analysis.column,
             nameLocation: "middle",
-            nameGap: 42,
-            axisLabel: { color: CHART_TEXT, fontSize: 11, formatter: (value) => formatNumber(value) },
+            nameGap: compact ? 26 : 42,
+            axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, formatter: (value) => formatNumber(value) },
         },
         series: [
             {
@@ -1306,7 +1338,10 @@ function pickChart(index) {
 function resizeActiveChart() {
     requestAnimationFrame(() => {
         const item = chartItems[state.activeChart];
-        if (item && item[2]) renderChart(item[2]);
+        if (!item) return;
+        if (state.analysis && item[0] === "pie") renderPieChart(distributionFrequencyRows(state.analysis), "donut");
+        else if (state.analysis && item[0] === "pizza") renderPieChart(distributionFrequencyRows(state.analysis), "pie");
+        else if (item[2]) renderChart(item[2]);
     });
 }
 
@@ -1459,9 +1494,11 @@ function selectedColumn() { return state.columns.find((column) => column.name ==
 function parseOrder(value) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
 function blockspotData() { return state.analysis?.charts?.group_heatmap || state.blockspotAnalysis?.charts?.group_heatmap || null; }
 
-function topFrequencies(rows) {
-    if (rows.length <= 12) return rows;
-    return rows.slice(0, 11).concat([["Outros", rows.slice(11).reduce((sum, row) => sum + row[1], 0)]]);
+function topFrequencies(rows, maxCategories = 12) {
+    if (rows.length <= maxCategories) return rows;
+    const top = rows.slice(0, maxCategories - 1);
+    const otherFrequency = rows.slice(maxCategories - 1).reduce((sum, row) => sum + row[1], 0);
+    return top.concat([["Outros", otherFrequency]]);
 }
 
 function summaryStats(values) {

@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Painel estatístico das respostas dos colaboradores da Fábrica de Luz.">
     <title>Dashboard de TI — Fábrica de Luz</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='variable-type-2026-10-18') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='mobile-first-final-2026-10-18') }}">
     <script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js" defer></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='variable-type-2026-10-18') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='mobile-first-axes-2026-10-18') }}" defer></script>
 </head>
 <body>
     <div class="app-shell">
@@ -124,7 +124,7 @@
         <section class="card wide chart-card" id="cd_dot" hidden>
             <div class="chart-head"><span class="chart-mark scatter" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20h16M4 20V4"/><circle cx="8" cy="15" r="1.5"/><circle cx="12" cy="10" r="1.5"/><circle cx="17" cy="7" r="1.5"/></svg></span><div><h2>Pontos — relação entre variáveis</h2><p>Explore a distribuição e a relação entre os valores numéricos.</p></div></div>
             <div class="cv"><div id="cdot" class="chart-engine"></div></div>
-            <p class="lg">Cada ponto representa uma resposta. Faixas usam os pontos médios calculados pelo Python.</p>
+            <p class="lg" id="dotAxisContext">Cada ponto representa uma resposta. Faixas usam os pontos médios calculados pelo Python.</p>
             <p class="na" id="na_dot" hidden></p>
         </section>
         <section class="card wide chart-card" id="cd_line" hidden>
@@ -146,6 +146,7 @@
         <section class="card wide chart-card" id="cd_box" hidden>
             <div class="chart-head"><span class="chart-mark box" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v4m0 10v4M8 7h8v10H8zM6 5h12M6 19h12M5 12h3m8 0h3"/></svg></span><div><h2>Caixa — distribuição por grupo</h2><p>Compare mínimo, quartis, mediana, máximo e média.</p></div></div>
             <div class="cv"><div id="cbox" class="chart-engine"></div></div>
+            <p class="lg" id="boxAxisContext" hidden></p>
             <p class="na" id="na_box" hidden></p>
         </section>
         <section class="card wide chart-card" id="cd_su" hidden>
