@@ -9,12 +9,11 @@ const state = {
     analysis: null,
     groupedAnalysis: null,
     scatterAnalysis: null,
-    blockspotAnalysis: null,
     downloads: [],
     activeChart: 0,
     chartAvailability: null,
     responsiveMobile: null,
-    activeTab: "up",
+    activeTab: "landing",
     requestId: 0,
     tableRequestId: 0,
     tablePage: 0,
@@ -24,6 +23,10 @@ const state = {
     tableSheet: null,
     typeOverrides: {},
     orderOverrides: {},
+    ordinalDraft: [],
+    ordinalDraftSource: null,
+    ordinalEditing: null,
+    ordinalPage: 0,
 };
 
 const elements = {};
@@ -32,10 +35,11 @@ const chartOptions = {};
 const chartItems = [
     ["bar", "Barra", "cbar"], ["column", "Coluna", "ccolumn"], ["pie", "Rosca", "cpie"], ["pizza", "Pizza", "cpizza"],
     ["table", "Tabela agrupada", null], ["rawtable", "Tabela geral", null],
-    ["dot", "Ponto", "cdot"], ["line", "Linha", "cline"], ["ogv", "Ogiva", "cogv"], ["blk", "Blockspot", "blkb"],
-    ["box", "Caixa", "cbox"], ["su", "Medidas sem classe", null], ["sg", "Medidas com classe", null],
+    ["dot", "Ponto", "cdot"], ["line", "Linha", "cline"], ["ogv", "Ogiva", "cogv"],
+    ["box", "Boxplot", "cbox"], ["su", "Medidas sem classe", null], ["sg", "Medidas com classe", null],
 ];
-const chartPalette = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316", "#14b8a6", "#6366f1"];
+const chartPalette = ["#7751bd", "#b33180", "#ffb21a", "#8c68d1", "#d94d9b", "#5c91e5", "#38b9cf", "#f1844c", "#54bd9b", "#df6f62"];
+const boxColor = "#5b9bd5";
 const variableTypeLabels = {
     qualitative_nominal: "Qualitativa nominal",
     qualitative_ordinal: "Qualitativa ordinal",
@@ -53,22 +57,30 @@ document.addEventListener("DOMContentLoaded", initialize);
 
 function initialize() {
     [
-        "flt", "gf", "pk", "dash", "up", "emptyDash", "analysisAlert",
+        "flt", "gf", "pk", "dash", "up", "landing", "startAnalysis", "homeLink", "workspaceHeading", "emptyDash", "analysisAlert",
         "dashboardLayout", "pageTitle", "pageSubtitle", "contextFile",
         "file", "drop", "ust", "datasetSettings", "fileName", "fileMeta", "sheetSelect", "sheetField", "typeSelect",
-        "ordinalField", "ordinalOrder", "secondaryField", "secondaryColumn", "groupField", "groupColumn", "groupedToggle",
+        "ordinalField", "ordinalSummary", "ordinalOrderHint", "editOrdinalOrder",
+        "ordinalDialog", "ordinalDialogVariable", "ordinalDialogStatus", "ordinalList", "ordinalReset", "ordinalReverse",
+        "ordinalApply", "ordinalCancel", "ordinalClose", "ordinalAnnounce", "ordinalPagination", "ordinalPrevious", "ordinalNext", "ordinalPageLabel",
+        "secondaryField", "secondaryColumn", "groupedToggle",
         "binsField", "binsInput", "inferenceHint", "rowCount", "columnCount", "tpl", "rst", "loading",
-        "blkb", "kun", "kgr", "tgr", "cfreqTableBody", "cfreqTableTotal", "cfreqTablePercent",
+        "kun", "kgr", "tgr", "cfreqTableBody", "cfreqTableTotal", "cfreqTablePercent",
+        "groupedVariable", "groupedMethod", "groupedMeasuresNote", "individualMeasuresNote",
+        "validCount", "missingCount", "distinctCount", "distinctLabel",
         "datasetTable", "tableSummary", "tablePageSize", "tablePrev", "tableNext", "tablePageIndicator",
-        "na_dot", "na_line", "na_ogv", "na_blk", "na_box", "na_su", "na_sg",
+        "na_dot", "na_line", "na_ogv", "na_box", "na_su", "na_sg",
     ].forEach((id) => { elements[id] = document.getElementById(id); });
 
     bindEvents();
-    selectTab("up");
+    observeChartSizes();
+    selectTab("landing");
     pickChart(0);
 }
 
 function bindEvents() {
+    elements.startAnalysis.addEventListener("click", () => selectTab(state.datasetId ? "dash" : "up"));
+    elements.homeLink.addEventListener("click", () => selectTab("landing"));
     elements.file.addEventListener("change", (event) => uploadFile(event.target.files[0]));
     elements.drop.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -102,19 +114,40 @@ function bindEvents() {
     elements.typeSelect.addEventListener("change", () => {
         const column = selectedColumn();
         if (column) {
-            state.typeOverrides[column.name] = elements.typeSelect.value;
-            updateInferenceHint(column, elements.typeSelect.value);
+            const type = populateVariableTypeOptions(column, elements.typeSelect.value);
+            state.typeOverrides[column.name] = type;
+            updateInferenceHint(column, type);
         }
         syncTypeControls();
         runAnalysis();
     });
-    elements.ordinalOrder.addEventListener("change", () => {
-        const column = selectedColumn();
-        if (column) state.orderOverrides[column.name] = parseOrder(elements.ordinalOrder.value);
-        runAnalysis();
+    elements.editOrdinalOrder.addEventListener("click", openOrdinalOrganizer);
+    [elements.ordinalCancel, elements.ordinalClose].forEach((button) => button.addEventListener("click", () => elements.ordinalDialog.close()));
+    elements.ordinalDialog.addEventListener("close", () => {
+        document.body.classList.remove("ordinal-dialog-open");
+        state.ordinalDraft = [];
+        state.ordinalEditing = null;
     });
+    elements.ordinalList.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-move]");
+        if (button) moveOrdinalCategory(Number(button.dataset.index), Number(button.dataset.move));
+    });
+    elements.ordinalReverse.addEventListener("click", () => {
+        state.ordinalDraft.reverse(); state.ordinalDraftSource = "custom"; state.ordinalPage = 0;
+        elements.ordinalList.scrollTop = 0;
+        renderOrdinalList(); elements.ordinalAnnounce.textContent = "Ordem das categorias invertida.";
+    });
+    elements.ordinalReset.addEventListener("click", () => {
+        const column = selectedColumn();
+        state.ordinalDraft = [...(column.ordinal_default_order || column.inferred_order || ordinalOrderForColumn(column))];
+        state.ordinalDraftSource = column.ordinal_default_source || (column.inferred_order?.length ? "recognized" : "appearance");
+        state.ordinalPage = 0; elements.ordinalList.scrollTop = 0; renderOrdinalList();
+        elements.ordinalAnnounce.textContent = "Ordem inicial restaurada.";
+    });
+    elements.ordinalPrevious.addEventListener("click", () => { state.ordinalPage--; elements.ordinalList.scrollTop = 0; renderOrdinalList(); });
+    elements.ordinalNext.addEventListener("click", () => { state.ordinalPage++; elements.ordinalList.scrollTop = 0; renderOrdinalList(); });
+    elements.ordinalApply.addEventListener("click", applyOrdinalOrder);
     elements.secondaryColumn.addEventListener("change", runAnalysis);
-    elements.groupColumn.addEventListener("change", runAnalysis);
     elements.groupedToggle.addEventListener("change", () => {
         syncGroupedControls();
         runAnalysis();
@@ -134,14 +167,28 @@ function bindEvents() {
     elements.tpl.addEventListener("click", downloadTemplate);
     elements.rst.addEventListener("click", removeDataset);
     elements.dash.addEventListener("click", handleDownloadClick);
+    document.addEventListener("click", (event) => {
+        elements.dash.querySelectorAll(".chart-download[open]").forEach((menu) => {
+            if (!menu.contains(event.target)) menu.open = false;
+        });
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        elements.dash.querySelectorAll(".chart-download[open]").forEach((menu) => {
+            menu.open = false;
+            if (menu.contains(document.activeElement)) menu.querySelector("summary")?.focus();
+        });
+    });
 }
 
 function selectTab(tab) {
-    if (!["dash", "up"].includes(tab)) return;
+    if (!["landing", "dash", "up"].includes(tab)) return;
     if (tab === "up" && state.datasetId) tab = "dash";
     if (tab === "dash" && !state.datasetId) tab = "up";
     state.activeTab = tab;
-    ["dash", "up"].forEach((id) => { elements[id].hidden = id !== tab; });
+    ["landing", "dash", "up"].forEach((id) => { elements[id].hidden = id !== tab; });
+    elements.workspaceHeading.hidden = tab === "landing";
+    document.body.dataset.view = tab;
     elements.flt.hidden = !(tab === "dash" && state.columns.length);
     elements.dashboardLayout.hidden = tab !== "dash";
     syncPageContext();
@@ -150,8 +197,9 @@ function selectTab(tab) {
 
 function syncPageContext() {
     const pages = {
-        dash: ["Dashboard", "Explore as respostas e escolha a visualização para sua análise."],
-        up: ["Carregar dados", "Importe sua base para começar a análise."],
+        landing: ["pesquisa analytics", ""],
+        dash: ["pesquisa analytics", "Explore as respostas e escolha a visualização para sua análise."],
+        up: ["carregar dados", "Importe sua base para começar a análise."],
     };
     const [title, subtitle] = pages[state.activeTab];
     elements.pageTitle.textContent = title;
@@ -180,6 +228,8 @@ async function uploadFile(file) {
         state.fileName = file.name;
         state.sheets = data.sheets || [];
         state.sheet = data.sheet;
+        state.typeOverrides = {};
+        state.orderOverrides = {};
         state.tablePage = 0;
         state.tableRowCount = 0;
         state.tableColumns = [];
@@ -238,6 +288,7 @@ function applyDatasetMetadata(data) {
     populateVariableSelect();
     syncPageContext();
     if (state.columns.length) syncVariableConfiguration();
+    else populateVariableTypeOptions(null);
 }
 
 function populateSheetSelect(sheets, selected) {
@@ -275,13 +326,138 @@ function appendOptionGroup(select, label, columns) {
 function syncVariableConfiguration() {
     const column = selectedColumn();
     if (!column) return;
-    const type = state.typeOverrides[column.name] || column.inferred_type;
-    elements.typeSelect.value = type;
-    const order = state.orderOverrides[column.name] || column.inferred_order || [];
-    elements.ordinalOrder.value = order.join(", ");
+    const requestedType = state.typeOverrides[column.name] || column.inferred_type;
+    const type = populateVariableTypeOptions(column, requestedType);
+    if (type !== requestedType) delete state.typeOverrides[column.name];
+    renderOrdinalSummary();
     updateInferenceHint(column, type);
     populateComparisonColumns(column);
     syncTypeControls();
+}
+
+function allowedTypesForColumn(column) {
+    if (!column) return [];
+    const family = column.inferred_type.startsWith("quantitative_") ? "quantitative_" : "qualitative_";
+    const types = column.allowed_types || Object.keys(variableTypeLabels);
+    return types.filter((type) => type.startsWith(family) && variableTypeLabels[type]);
+}
+
+function ordinalOrderForColumn(column = selectedColumn()) {
+    return column ? (state.orderOverrides[column.name] || column.ordinal_order || column.inferred_order || []) : [];
+}
+
+function renderOrdinalSummary() {
+    const column = selectedColumn();
+    const order = ordinalOrderForColumn(column);
+    elements.editOrdinalOrder.disabled = !order.length;
+    const preview = order.slice(0, 3).join(" → ") + (order.length > 3 ? ` · +${order.length - 3}` : "");
+    elements.ordinalSummary.textContent = preview || "Carregando categorias…";
+    elements.ordinalSummary.title = order.length <= 20 ? order.join(" → ") : preview;
+    const source = column && state.orderOverrides[column.name] ? "custom" : column?.ordinal_order_source || (column?.inferred_order?.length ? "recognized" : "appearance");
+    elements.ordinalOrderHint.textContent = !order.length ? "As categorias serão carregadas automaticamente." : source === "recognized"
+        ? "Escala reconhecida automaticamente, do menor para o maior nível."
+        : source === "custom" ? "Ordem personalizada, do menor para o maior nível."
+            : "Ordem inicial da planilha. Revise a sequência dos níveis em Organizar.";
+}
+
+function cacheOrdinalOrder(analysis) {
+    if (analysis.variable_type !== "qualitative_ordinal" || !analysis.ordinal_order?.length) return;
+    const column = selectedColumn();
+    if (!column || column.name !== analysis.column) return;
+    column.ordinal_order = [...analysis.ordinal_order];
+    column.ordinal_order_source = analysis.ordinal_order_source;
+    if (analysis.ordinal_order_source !== "custom") {
+        column.ordinal_default_order = [...analysis.ordinal_order];
+        column.ordinal_default_source = analysis.ordinal_order_source;
+    }
+    if (state.orderOverrides[column.name]) state.orderOverrides[column.name] = [...analysis.ordinal_order];
+    renderOrdinalSummary();
+}
+
+function openOrdinalOrganizer() {
+    const column = selectedColumn(), order = ordinalOrderForColumn(column);
+    if (!column || !order.length || elements.typeSelect.value !== "qualitative_ordinal") return;
+    state.ordinalDraft = [...order];
+    state.ordinalDraftSource = state.orderOverrides[column.name] ? "custom" : column.ordinal_order_source || "recognized";
+    state.ordinalEditing = { column: column.name, dataset: state.datasetId, sheet: state.sheet };
+    state.ordinalPage = 0;
+    elements.ordinalList.scrollTop = 0;
+    elements.ordinalDialogVariable.textContent = column.name;
+    elements.ordinalReset.textContent = (column.ordinal_default_source === "recognized" || column.inferred_order?.length) ? "Usar sugestão" : "Ordem da planilha";
+    elements.ordinalAnnounce.textContent = "";
+    renderOrdinalList();
+    document.body.classList.add("ordinal-dialog-open");
+    elements.ordinalDialog.showModal();
+}
+
+function renderOrdinalList() {
+    const pageSize = 50, count = state.ordinalDraft.length;
+    state.ordinalPage = Math.max(0, Math.min(state.ordinalPage, Math.ceil(count / pageSize) - 1));
+    const start = state.ordinalPage * pageSize, end = Math.min(count, start + pageSize);
+    const scrollTop = elements.ordinalList.scrollTop;
+    clearElement(elements.ordinalList);
+    elements.ordinalList.start = start + 1;
+    state.ordinalDraft.slice(start, end).forEach((category, offset) => {
+        const index = start + offset;
+        const item = document.createElement("li"); item.dataset.index = String(index); item.tabIndex = -1;
+        const position = document.createElement("span"); position.className = "ordinal-position"; position.textContent = String(index + 1); position.setAttribute("aria-hidden", "true");
+        const name = document.createElement("span"); name.className = "ordinal-category"; name.textContent = category;
+        const controls = document.createElement("div"); controls.className = "ordinal-move-controls";
+        for (const [direction, symbol, label] of [[-1, "↑", "Subir"], [1, "↓", "Descer"]]) {
+            const button = document.createElement("button"); button.type = "button"; button.textContent = symbol;
+            button.dataset.move = String(direction); button.dataset.index = String(index);
+            button.disabled = index + direction < 0 || index + direction >= count;
+            button.setAttribute("aria-label", `${label} ${category}`); controls.appendChild(button);
+        }
+        item.append(position, name, controls); elements.ordinalList.appendChild(item);
+    });
+    elements.ordinalList.scrollTop = scrollTop;
+    elements.ordinalPagination.hidden = count <= pageSize;
+    elements.ordinalPageLabel.textContent = `${start + 1}–${end} de ${formatInteger(count)}`;
+    elements.ordinalPrevious.disabled = state.ordinalPage === 0;
+    elements.ordinalNext.disabled = end === count;
+    elements.ordinalApply.disabled = !count;
+    elements.ordinalReverse.disabled = count < 2;
+    elements.ordinalDialogStatus.textContent = state.ordinalDraftSource === "recognized" ? "A escala foi reconhecida pelos nomes das categorias."
+        : state.ordinalDraftSource === "custom" ? "Sua sequência será usada nos gráficos e nas frequências acumuladas."
+            : "Não há uma escala reconhecida para estes nomes. A lista começa na ordem da planilha; ajuste a sequência dos níveis.";
+}
+
+function moveOrdinalCategory(index, direction) {
+    const target = index + direction;
+    if (index < 0 || target < 0 || index >= state.ordinalDraft.length || target >= state.ordinalDraft.length) return;
+    const category = state.ordinalDraft[index];
+    [state.ordinalDraft[index], state.ordinalDraft[target]] = [state.ordinalDraft[target], state.ordinalDraft[index]];
+    state.ordinalDraftSource = "custom"; state.ordinalPage = Math.floor(target / 50);
+    renderOrdinalList();
+    const item = elements.ordinalList.querySelector(`li[data-index="${target}"]`);
+    const button = item.querySelector(`button[data-move="${direction}"]:not(:disabled)`) || item.querySelector("button:not(:disabled)");
+    (button || item).focus(); item.scrollIntoView({ block: "nearest" });
+    elements.ordinalAnnounce.textContent = `${category}: posição ${target + 1} de ${state.ordinalDraft.length}.`;
+}
+
+function applyOrdinalOrder() {
+    const editing = state.ordinalEditing, column = selectedColumn();
+    if (!editing || !column || editing.column !== column.name || editing.dataset !== state.datasetId || editing.sheet !== state.sheet) {
+        elements.ordinalDialog.close(); return;
+    }
+    if (state.ordinalDraftSource === "custom") state.orderOverrides[column.name] = [...state.ordinalDraft];
+    else delete state.orderOverrides[column.name];
+    elements.ordinalDialog.close(); renderOrdinalSummary(); runAnalysis();
+}
+
+function populateVariableTypeOptions(column, requestedType) {
+    const allowed = allowedTypesForColumn(column);
+    clearElement(elements.typeSelect);
+    elements.typeSelect.disabled = !allowed.length;
+    if (!allowed.length) {
+        addOption(elements.typeSelect, "", "Selecione uma variável", true);
+        return "";
+    }
+    const type = allowed.includes(requestedType) ? requestedType : column.inferred_type;
+    allowed.forEach((value) => addOption(elements.typeSelect, value, variableTypeLabels[value], value === type));
+    elements.typeSelect.value = type;
+    return type;
 }
 
 function updateInferenceHint(column, appliedType) {
@@ -289,40 +465,42 @@ function updateInferenceHint(column, appliedType) {
     const appliedLabel = variableTypeLabels[appliedType] || suggestedLabel;
     const responseDescription = responseTypeDescriptions[column.inferred_type] || "resposta ainda não classificada";
     const manualAdjustment = appliedType !== column.inferred_type ? " (ajustada manualmente)" : "";
+    const allowedLabels = allowedTypesForColumn(column).map((type) => variableTypeLabels[type].toLowerCase()).join(" ou ");
 
-    elements.inferenceHint.textContent = `Pergunta selecionada: “${column.name}”. Tipo estatístico inferido pelas respostas: ${responseDescription}. Sugestão: ${suggestedLabel}; classificação usada: ${appliedLabel}${manualAdjustment}. A planilha não informa o formato original da pergunta.`;
+    elements.inferenceHint.textContent = `Pergunta selecionada: “${column.name}”. Respostas identificadas como ${responseDescription}. Sugestão: ${suggestedLabel}; classificação usada: ${appliedLabel}${manualAdjustment}. Opções compatíveis com os dados desta coluna: ${allowedLabels}.`;
+    if (column.has_reported_intervals) elements.inferenceHint.textContent += " As respostas já informam faixas numéricas; os cálculos usam essas faixas e seus pontos médios.";
 }
 
 function populateComparisonColumns(column) {
     const numeric = state.columns.filter((item) => item.inferred_type.startsWith("quantitative_"));
-    const categorical = state.columns.filter((item) => item.name !== column.name && !item.inferred_type.startsWith("quantitative_"));
-    const oldSecondary = elements.secondaryColumn.value;
-    const oldGroup = elements.groupColumn.value;
 
     clearElement(elements.secondaryColumn);
-    addOption(elements.secondaryColumn, "", "Variável atual no Y (índice no X)", false);
+    addOption(elements.secondaryColumn, "", "Valores individuais por resposta", true);
     numeric.filter((item) => item.name !== column.name).forEach((item) => addOption(elements.secondaryColumn, item.name, item.name, false));
-    const defaultSecondary = numeric.find((item) => item.name !== column.name)?.name || "";
-    elements.secondaryColumn.value = numeric.some((item) => item.name === oldSecondary && item.name !== column.name) ? oldSecondary : defaultSecondary;
-
-    clearElement(elements.groupColumn);
-    addOption(elements.groupColumn, "", "Sem agrupamento", false);
-    categorical.forEach((item) => addOption(elements.groupColumn, item.name, item.name, false));
-    const defaultGroup = categorical[0]?.name || "";
-    elements.groupColumn.value = categorical.some((item) => item.name === oldGroup) ? oldGroup : defaultGroup;
+    elements.secondaryColumn.value = "";
 }
 
 function syncTypeControls() {
     const type = elements.typeSelect.value;
     const quantitative = type.startsWith("quantitative_");
-    const selectedName = elements.gf.value;
-    const categoricalCount = state.columns.filter((column) => column.name !== selectedName && !column.inferred_type.startsWith("quantitative_")).length;
+    const reportedIntervals = Boolean(selectedColumn()?.has_reported_intervals);
     const activeChart = chartItems[state.activeChart]?.[0];
+    const boxIndex = chartItems.findIndex(([key]) => key === "box");
+    const boxButton = elements.pk.querySelector(`button[data-i="${boxIndex}"]`);
+    if (boxButton) boxButton.hidden = !quantitative;
     elements.ordinalField.hidden = type !== "qualitative_ordinal";
+    if (type === "qualitative_ordinal") renderOrdinalSummary();
     elements.secondaryField.hidden = activeChart !== "dot" || !quantitative;
-    elements.groupField.hidden = !["blk", "box"].includes(activeChart) || !quantitative || categoricalCount === 0;
-    elements.groupedToggle.disabled = !quantitative;
-    if (!quantitative) elements.groupedToggle.checked = false;
+    const classControls = elements.groupedToggle.closest(".advanced-settings");
+    if (classControls) classControls.hidden = !quantitative || reportedIntervals || ["box", "dot"].includes(activeChart);
+    const secondaryLabel = elements.secondaryField.querySelector(".lb");
+    if (secondaryLabel) secondaryLabel.textContent = "Comparar com outra variável (opcional)";
+    if (!quantitative && state.activeChart === boxIndex) {
+        pickChart(0);
+        return;
+    }
+    elements.groupedToggle.disabled = !quantitative || reportedIntervals;
+    if (!quantitative || reportedIntervals) elements.groupedToggle.checked = false;
     syncGroupedControls();
 }
 
@@ -336,15 +514,13 @@ async function runAnalysis() {
     const column = selectedColumn();
     const type = elements.typeSelect.value;
     const quantitative = type.startsWith("quantitative_");
-    const groupColumn = quantitative ? (elements.groupColumn.value || null) : null;
     const secondaryColumn = quantitative ? (elements.secondaryColumn.value || null) : null;
     const common = {
         dataset_id: state.datasetId,
         sheet: state.sheet,
         column: column.name,
         variable_type: type,
-        ordinal_order: type === "qualitative_ordinal" ? parseOrder(elements.ordinalOrder.value) : null,
-        group_column: groupColumn,
+        ordinal_order: type === "qualitative_ordinal" ? (state.orderOverrides[column.name] || null) : null,
     };
 
     setLoading(true);
@@ -357,28 +533,11 @@ async function runAnalysis() {
         requests.push(quantitative && secondaryColumn
             ? requestAnalysis({ ...common, grouped: false, secondary_column: secondaryColumn, group_column: null })
             : Promise.resolve(null));
-        let blockspotRequest = Promise.resolve(null);
-        if (!quantitative) {
-            const numeric = state.columns.find((item) => item.inferred_type.startsWith("quantitative_"));
-            if (!column.inferred_type.startsWith("quantitative_") && numeric && numeric.name !== column.name) {
-                blockspotRequest = requestAnalysis({
-                    dataset_id: state.datasetId,
-                    sheet: state.sheet,
-                    column: numeric.name,
-                    variable_type: numeric.inferred_type,
-                    grouped: false,
-                    group_column: column.name,
-                    secondary_column: null,
-                });
-            }
-        }
-        requests.push(blockspotRequest);
-        const [analysis, groupedAnalysis, scatterAnalysis, blockspotAnalysis] = await Promise.all(requests);
+        const [analysis, groupedAnalysis, scatterAnalysis] = await Promise.all(requests);
         if (request !== state.requestId) return;
         state.analysis = analysis;
         state.groupedAnalysis = groupedAnalysis;
         state.scatterAnalysis = scatterAnalysis;
-        state.blockspotAnalysis = blockspotAnalysis;
         renderAnalysis();
     } catch (error) {
         if (request === state.requestId) setAnalysisError(error.message);
@@ -399,8 +558,11 @@ async function requestAnalysis(payload) {
 function renderAnalysis() {
     const analysis = state.analysis;
     if (!analysis) return;
+    cacheOrdinalOrder(analysis);
     syncDistributionTitles(analysis);
+    syncChartContext(analysis);
     renderCharts(analysis);
+    syncVariableSummary(analysis);
     const quantitative = analysis.variable_type.startsWith("quantitative_");
     const chartData = analysis.charts;
     const hasDate = chartData.date_x?.length > 0;
@@ -414,8 +576,7 @@ function renderAnalysis() {
         dot: quantitative && Boolean(scatterChartPayload(analysis)?.series_x?.length),
         line: hasDate || quantitative,
         ogv: quantitative && Boolean(state.groupedAnalysis?.charts?.cumulative_x?.length),
-        blk: Boolean(blockspotData()?.values?.length),
-        box: quantitative,
+        box: quantitative && Boolean(chartData.box_values?.length),
         su: quantitative && Boolean(analysis.statistics),
         sg: quantitative && Boolean(state.groupedAnalysis?.grouped_statistics),
     };
@@ -423,12 +584,11 @@ function renderAnalysis() {
         dot: "Não há valores numéricos suficientes para montar o gráfico de pontos.",
         line: "Sem coluna de data no arquivo. Escolha uma variável numérica para ver os valores por ordem de resposta.",
         ogv: "A ogiva exige dados numéricos. Escolha uma variável numérica.",
-        blk: "O blockspot precisa de uma coluna de categorias e ao menos uma numérica.",
-        box: "O boxplot exige dados numéricos. Escolha uma variável numérica.",
+        box: "O boxplot exige dados numéricos. Selecione uma variável numérica.",
         su: "Escolha uma variável numérica para ver estas medidas.",
         sg: "Escolha uma variável numérica para ver as medidas com intervalo de classe.",
     };
-    ["dot", "line", "ogv", "blk", "box", "su", "sg"].forEach((key) => setAvailability(key, availability[key], messages[key]));
+    ["dot", "line", "ogv", "box", "su", "sg"].forEach((key) => setAvailability(key, availability[key], messages[key]));
     state.chartAvailability = availability;
     syncChartList(availability);
     renderDownloads(availability);
@@ -460,7 +620,8 @@ function syncChartList(availability) {
 }
 
 function usesGroupedDistribution(analysis) {
-    return analysis.variable_type === "quantitative_continuous" ||
+    const reported = state.groupedAnalysis?.column === analysis.column && state.groupedAnalysis?.grouping?.source === "reported_intervals";
+    return reported || analysis.variable_type === "quantitative_continuous" ||
         (analysis.variable_type === "quantitative_discrete" && elements.groupedToggle.checked);
 }
 
@@ -473,6 +634,16 @@ function distributionFrequencyRows(analysis) {
     const groupedRows = state.groupedAnalysis?.frequency_table;
     if (usesGroupedDistribution(analysis) && groupedRows?.length) return groupedRows;
     return analysis.frequency_table || [];
+}
+
+function syncVariableSummary(analysis = state.analysis) {
+    if (!analysis) return;
+    const individual = ["dot", "box"].includes(chartItems[state.activeChart]?.[0]);
+    const rows = individual ? (analysis.frequency_table || []) : distributionFrequencyRows(analysis);
+    elements.validCount.textContent = formatInteger(analysis.valid_count || 0);
+    elements.missingCount.textContent = formatInteger(analysis.missing_count || 0);
+    elements.distinctCount.textContent = formatInteger(rows.length);
+    elements.distinctLabel.textContent = individual ? "Valores distintos" : usesGroupedDistribution(analysis) ? "Faixas" : "Categorias";
 }
 
 function syncDistributionTitles(analysis) {
@@ -495,6 +666,31 @@ function syncDistributionTitles(analysis) {
         "aria-label",
         grouped ? "Frequência e participação por intervalo de classe" : "Frequência e participação por categoria",
     );
+}
+
+function syncChartContext(analysis) {
+    elements.dash.querySelectorAll(".chart-card .cv").forEach((surface) => {
+        let label = surface.querySelector(".chart-variable-label");
+        if (!label) {
+            label = document.createElement("p");
+            label.className = "chart-variable-label";
+            surface.prepend(label);
+        }
+        const key = surface.closest(".chart-card").id.replace(/^cd_/, "");
+        label.textContent = chartContextLabel(key, analysis);
+    });
+}
+
+function chartContextLabel(key, analysis) {
+    if (key === "dot") {
+        const scatter = scatterChartPayload(analysis);
+        if (scatter && !elements.secondaryColumn.value) return analysis.column;
+        if (scatter?.scatter_x_label && scatter?.scatter_y_label) return `${scatter.scatter_y_label} por ${scatter.scatter_x_label}`;
+    }
+    if (key === "box") {
+        return analysis.variable_type.startsWith("quantitative_") ? analysis.column : "Boxplot";
+    }
+    return analysis.column;
 }
 
 
@@ -546,22 +742,29 @@ function renderCharts(analysis) {
     const scatter = scatterChartPayload(analysis);
     if (quantitative && scatter?.series_x?.length) {
         const compact = window.matchMedia("(max-width: 640px)").matches;
+        const paired = Boolean(elements.secondaryColumn.value);
+        const xLabel = paired ? scatter.scatter_x_label : "Ordem da resposta";
         const points = scatter.series_x.map((x, index) => [Number(x), Number(scatter.series_y[index])]);
-        const name = scatter.scatter_y_label + " por " + scatter.scatter_x_label;
+        const name = scatter.scatter_y_label + " por " + (paired ? scatter.scatter_x_label : "resposta");
+        const heading = document.querySelector("#cd_dot .chart-head h2");
+        if (heading) heading.textContent = paired ? "Pontos — relação entre variáveis" : "Pontos — valores individuais";
         const axisContext = document.getElementById("dotAxisContext");
-        if (axisContext) axisContext.textContent = `Eixo X: ${scatter.scatter_x_label}. Eixo Y: ${scatter.scatter_y_label}. Cada ponto representa uma resposta.`;
+        if (axisContext) axisContext.textContent = `Eixo X: ${xLabel}. Eixo Y: ${scatter.scatter_y_label}. Cada ponto representa uma resposta individual.`;
         makeChart("cdot", {
-            ...baseChartOption([compact ? "Relação entre variáveis" : name]),
+            ...baseChartOption([compact ? (paired ? "Relação entre variáveis" : "Respostas individuais") : name]),
             tooltip: chartTooltip("item", null, (point) => chartTooltipLines(name, [
-                String(scatter.scatter_x_label) + ": " + formatNumber(point.value[0]),
+                xLabel + ": " + formatNumber(point.value[0]),
                 String(scatter.scatter_y_label) + ": " + formatNumber(point.value[1]),
             ])),
             grid: { left: compact ? 42 : 56, right: 18, top: 42, bottom: compact ? 54 : 54, containLabel: true },
             xAxis: {
                 ...chartValueAxis(),
-                name: compact ? "Eixo X" : scatter.scatter_x_label,
+                name: compact && paired ? "Eixo X" : xLabel,
                 nameLocation: "middle",
                 nameGap: compact ? 24 : 34,
+                minInterval: paired ? undefined : 1,
+                min: paired ? undefined : 1,
+                max: paired ? undefined : Math.max(2, points.length),
                 axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, formatter: (value) => formatNumber(value) },
             },
             yAxis: {
@@ -682,13 +885,15 @@ function renderCharts(analysis) {
         });
     }
 
-    renderBlockspot(blockspotData());
     if (quantitative) renderBoxplot(analysis);
     renderKpis(elements.kun, analysis.statistics, false);
     if (state.groupedAnalysis) {
         renderKpis(elements.kgr, state.groupedAnalysis.grouped_statistics, true);
-        renderGroupedTable(state.groupedAnalysis.frequency_table);
+        renderGroupedTable(state.groupedAnalysis);
     }
+    elements.individualMeasuresNote.textContent = selectedColumn()?.has_reported_intervals
+        ? "As respostas já são faixas. Nesta aba, cada resposta é representada pelo ponto médio da faixa; as medidas não são os tempos individuais observados."
+        : "Medidas calculadas sobre os valores individuais.";
 }
 
 function renderColumnChart(rows, distributionLabel) {
@@ -703,7 +908,7 @@ function renderColumnChart(rows, distributionLabel) {
             const point = firstChartParam(params);
             return chartTooltipLines(point.axisValueLabel || point.name, [formatInteger(point.value)], [seriesName]);
         }),
-        grid: { left: 64, right: 24, top: 40, bottom: dataZoom ? 86 : 64, containLabel: true },
+        grid: { left: 64, right: 24, top: 40, bottom: 64, containLabel: true },
         xAxis: {
             ...chartCategoryAxis(labels),
             name: distributionLabel,
@@ -896,11 +1101,11 @@ function renderDatasetTable(columns, records) {
     elements.datasetTable.appendChild(table);
 }
 
-const CHART_TEXT = "#475569";
-const CHART_SUBTEXT = "#71717a";
-const CHART_GRID = "#e4e4e7";
-const PIE_SURFACE = "#302d2b";
-const PIE_TEXT = "#f8fafc";
+const CHART_TEXT = "#dce8fa";
+const CHART_SUBTEXT = "#9eafd0";
+const CHART_GRID = "rgba(192,211,242,.2)";
+const PIE_SURFACE = "#0a2149";
+const PIE_TEXT = "#f4f7ff";
 
 function baseChartOption(legendNames, legendPosition = "top", scrollLegend = false) {
     const names = Array.isArray(legendNames) ? legendNames : [];
@@ -939,11 +1144,11 @@ function chartTooltip(trigger = "axis", pointer = "shadow", formatter) {
         show: true,
         trigger,
         ...(pointer ? { axisPointer: { type: pointer } } : {}),
-        backgroundColor: "#ffffff",
-        borderColor: "#e2e8f0",
+        backgroundColor: "#102b55",
+        borderColor: "#5375a7",
         borderWidth: 1,
-        textStyle: { color: "#18181b", fontSize: 12 },
-        extraCssText: "border-radius:8px;box-shadow:0 8px 24px rgba(15,23,42,.16);",
+        textStyle: { color: "#f4f7ff", fontSize: 12 },
+        extraCssText: "border-radius:8px;box-shadow:0 8px 24px rgba(0,8,26,.45);",
         confine: true,
         ...(formatter ? { formatter } : {}),
     };
@@ -998,41 +1203,18 @@ function chartDataZoom(chartId, count, axis, horizontal, labels) {
     const longest = Math.max(1, ...labels.map((label) => String(label).length));
     const itemExtent = horizontal ? 34 : Math.max(56, Math.min(180, longest * 5.72 + 20));
     const reserved = horizontal ? 112 : 64;
-    const capacity = Math.max(1, Math.min(6, Math.floor((extent - reserved) / itemExtent)));
+    const capacity = Math.max(1, Math.floor((extent - reserved) / itemExtent));
     if (count <= capacity) return undefined;
-
-    const zoomStyle = {
-        backgroundColor: "#f1f5f9",
-        borderColor: "#334155",
-        fillerColor: "#64748b",
-        handleIcon: "path://M-4,-8L4,-8Q6,-8,6,-6L6,6Q6,8,4,8L-4,8Q-6,8,-6,6L-6,-6Q-6,-8,-4,-8Z",
-        handleSize: "115%",
-        handleStyle: { color: "#ffffff", borderColor: "#0f172a", borderWidth: 2 },
-        moveHandleStyle: { color: "#64748b", opacity: 1 },
-        emphasis: { handleStyle: { color: "#ffffff", borderColor: "#0f172a", borderWidth: 2 } },
-    };
     const axisIndex = axis === "x" ? { xAxisIndex: [0] } : { yAxisIndex: [0] };
-    const slider = {
-        type: "slider",
-        show: true,
-        ...axisIndex,
-        start: 0,
-        end: 100,
-        ...(horizontal ? { width: 18, right: 5, brushSelect: false } : { height: 18, bottom: 5, brushSelect: false }),
-        ...zoomStyle,
-        textStyle: { color: CHART_SUBTEXT, fontSize: 10 },
-        showDetail: false,
-        showDataShadow: false,
-    };
     const inside = {
         type: "inside",
         ...axisIndex,
         start: 0,
         end: 100,
         zoomOnMouseWheel: false,
-        moveOnMouseWheel: true,
+        moveOnMouseWheel: false,
     };
-    return [slider, inside];
+    return [inside];
 }
 
 function makeChart(id, option) {
@@ -1059,145 +1241,150 @@ function renderChart(id) {
     return chart;
 }
 
-function renderBlockspot(heatmap) {
-    if (!heatmap?.values?.length || !heatmap.metric_labels?.length) return;
-    const metrics = heatmap.metric_labels;
-    const groups = heatmap.group_labels || [];
-    const bounds = metrics.map((_, index) => {
-        const values = heatmap.values.map((row) => row[index]).filter((value) => value !== null && value !== undefined);
-        return values.length ? [Math.min(...values), Math.max(...values)] : [0, 0];
-    });
-    const heatmapPoints = [];
-    groups.forEach((label, rowIndex) => metrics.forEach((_, columnIndex) => {
-        const value = heatmap.values[rowIndex]?.[columnIndex];
-        if (value === null || value === undefined || !Number.isFinite(Number(value))) return;
-        const [minimum, maximum] = bounds[columnIndex];
-        const intensity = (Number(value) - minimum) / (maximum - minimum || 1) * 100;
-        heatmapPoints.push([columnIndex, rowIndex, intensity, Number(value)]);
-    }));
-    const zoom = [
-        ...(chartDataZoom("blkb", metrics.length, "x", false, metrics) || []),
-        ...(chartDataZoom("blkb", groups.length, "y", true, groups) || []),
-    ];
-    makeChart("blkb", {
-        ...baseChartOption([]),
-        tooltip: chartTooltip("item", null, (point) => {
-            const [columnIndex, rowIndex, , value] = point.data || [];
-            return chartTooltipLines(groups[rowIndex], [formatNumber(value)], [metrics[columnIndex]]);
-        }),
-        grid: { left: 64, right: 70, top: 54, bottom: 58, containLabel: true },
-        xAxis: {
-            ...chartCategoryAxis(metrics),
-            axisLabel: { color: CHART_TEXT, fontSize: 11, width: 160, overflow: "truncate", rotate: metrics.length > 5 ? 20 : 0 },
-        },
-        yAxis: {
-            ...chartCategoryAxis(groups),
-            inverse: true,
-            axisLabel: { color: CHART_TEXT, fontSize: 11, width: 160, overflow: "truncate", margin: 12 },
-        },
-        visualMap: {
-            type: "continuous",
-            min: 0,
-            max: 100,
-            dimension: 2,
-            orient: "horizontal",
-            left: "center",
-            top: 4,
-            itemWidth: 130,
-            itemHeight: 9,
-            calculable: false,
-            text: ["Maior", "Menor"],
-            textGap: 8,
-            textStyle: { color: CHART_SUBTEXT, fontSize: 10 },
-            inRange: { color: ["#eff6ff", "#3b82f6"] },
-        },
-        series: [{
-            name: "Média",
-            type: "heatmap",
-            data: heatmapPoints,
-            itemStyle: { borderColor: "#ffffff", borderWidth: 2, borderRadius: 3 },
-            label: {
-                show: true,
-                color: "#1e3a8a",
-                fontSize: 11,
-                formatter: (point) => formatNumber(point.data[3]),
-            },
-            emphasis: {
-                itemStyle: { shadowBlur: 10, shadowColor: "rgba(15,23,42,.22)" },
-                label: { fontWeight: 700 },
-            },
-        }],
-        dataZoom: zoom.length ? zoom : undefined,
-    });
-}
-
 function renderBoxplot(analysis) {
     const compact = window.matchMedia("(max-width: 640px)").matches;
-    const comparison = analysis.charts.group_comparison;
-    const series = [["Geral", analysis.charts.box_values || []]];
-    if (comparison?.groups?.length) comparison.groups.forEach((group) => series.push([group.label, group.values || []]));
-    const summaries = series.map(([label, values]) => ({ label, ...summaryStats(values) })).filter((summary) => summary.n);
-    state.boxSummaries = summaries;
-    if (!summaries.length) return;
-
-    const names = summaries.map((summary) => String(summary.label));
-    const axisContext = document.getElementById("boxAxisContext");
-    if (axisContext) {
-        axisContext.hidden = !compact;
-        axisContext.textContent = compact
-            ? `Eixo X: ${comparison?.column || "Grupo"}. Eixo Y: ${analysis.column}.`
-            : "";
-    }
-    const legendNames = ["Distribuição", "Média"];
-    const itemAt = (params) => summaries[Number(params.dataIndex)] || summaries[0];
+    const summary = summaryStats(analysis.charts.box_values || []);
+    if (!summary.n) return;
+    summary.label = analysis.column || "Distribuição geral";
+    state.boxSummaries = [summary];
+    const names = ["Distribuição geral"];
+    const labelLevels = new Map();
+    const addLevel = (value, label) => {
+        const key = String(value);
+        const item = labelLevels.get(key) || { value, labels: [] };
+        item.labels.push(label);
+        labelLevels.set(key, item);
+    };
+    addLevel(summary.min, "Mínimo");
+    if (summary.whiskerMin !== summary.min) addLevel(summary.whiskerMin, "Bigode inf.");
+    addLevel(summary.q1, "Q1");
+    addLevel(summary.median, "Mediana");
+    addLevel(summary.q3, "Q3");
+    if (summary.whiskerMax !== summary.max) addLevel(summary.whiskerMax, "Bigode sup.");
+    addLevel(summary.max, "Máximo");
+    const levelLabels = [...labelLevels.values()]
+        .map((item) => {
+            const lines = [];
+            for (const label of item.labels) {
+                const last = lines.length - 1;
+                if (last >= 0 && `${lines[last]} · ${label}`.length <= (compact ? 20 : 32)) lines[last] += ` · ${label}`;
+                else lines.push(label);
+            }
+            lines[lines.length - 1] += ` = ${formatNumber(item.value)}`;
+            return { ...item, text: lines.join("\n"), height: lines.length * (compact ? 13 : 15) };
+        })
+        .sort((a, b) => a.value - b.value);
     makeChart("cbox", {
-        ...baseChartOption(legendNames),
+        ...baseChartOption([]),
         tooltip: chartTooltip("item", null, (params) => {
-            const summary = itemAt(params);
+            const point = firstChartParam(params);
+            if (point.seriesName === "Valores atípicos") {
+                const value = Array.isArray(point.data) ? point.data[1] : point.value;
+                return chartTooltipLines(analysis.column, ["Valor atípico = " + formatNumber(value)]);
+            }
             return chartTooltipLines(summary.label, [
                 "n = " + formatInteger(summary.n),
-                "Mínimo = " + formatNumber(summary.min),
+                "Mínimo amostral = " + formatNumber(summary.min),
+                "Cerca inferior = " + formatNumber(summary.lowerFence),
+                "Bigode inferior = " + formatNumber(summary.whiskerMin),
                 "Q1 = " + formatNumber(summary.q1),
                 "Mediana = " + formatNumber(summary.median),
                 "Q3 = " + formatNumber(summary.q3),
-                "Máximo = " + formatNumber(summary.max),
+                "Bigode superior = " + formatNumber(summary.whiskerMax),
+                "Cerca superior = " + formatNumber(summary.upperFence),
+                "Máximo amostral = " + formatNumber(summary.max),
+                "IQR = " + formatNumber(summary.iqr),
+                "Valores atípicos = " + formatInteger(summary.outliers.length),
                 "Média = " + formatNumber(summary.mean),
             ]);
         }),
-        grid: { left: compact ? 46 : 58, right: 18, top: 42, bottom: compact ? 48 : 52, containLabel: true },
+        grid: { left: compact ? 46 : 58, right: compact ? 142 : 178, top: 24, bottom: compact ? 48 : 52, containLabel: true },
         xAxis: {
             ...chartCategoryAxis(names),
-            name: compact ? "Grupo" : comparison?.column || "Grupo",
+            name: "Distribuição",
             nameLocation: "middle",
             nameGap: compact ? 24 : 34,
-            axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, interval: 0, rotate: names.length > 8 ? 20 : 0, hideOverlap: true },
+            axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, interval: 0 },
         },
         yAxis: {
             ...chartValueAxis(),
-            name: compact ? "Valor" : analysis.column,
+            scale: true,
+            name: "Valores",
             nameLocation: "middle",
             nameGap: compact ? 26 : 42,
             axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, formatter: (value) => formatNumber(value) },
         },
-        series: [
-            {
-                name: "Distribuição",
-                type: "boxplot",
-                data: summaries.map((summary) => [summary.min, summary.q1, summary.median, summary.q3, summary.max]),
-                itemStyle: { color: "rgba(59,130,246,0.22)", borderColor: chartPalette[0], borderWidth: 2 },
-                emphasis: { itemStyle: { borderColor: "#1d4ed8", borderWidth: 2 } },
+        series: [{
+            name: "Boxplot",
+            type: "boxplot",
+            layout: "vertical",
+            boxWidth: [30, 54],
+            data: [{
+                value: [summary.whiskerMin, summary.q1, summary.median, summary.q3, summary.whiskerMax],
+                itemStyle: { color: colorWithAlpha(boxColor, 0.56), borderColor: boxColor, borderWidth: 2 },
+            }],
+            itemStyle: { borderWidth: 2 },
+            emphasis: { itemStyle: { borderWidth: 2 } },
+        }, {
+            name: "Extremos dos bigodes",
+            type: "custom",
+            coordinateSystem: "cartesian2d",
+            silent: true,
+            clip: false,
+            z: 10,
+            encode: { x: 0, y: 1, tooltip: 2 },
+            data: levelLabels.map((item) => [names[0], item.value, item.text]),
+            renderItem: (params, api) => {
+                if (params.dataIndex !== 0) return null;
+                const coordinates = levelLabels.map((item) => {
+                    const [x, y] = api.coord([names[0], item.value]);
+                    return { ...item, x, valueY: y, y };
+                }).sort((a, b) => a.valueY - b.valueY);
+                const top = params.coordSys.y + coordinates[0].height / 2 + 2;
+                const bottom = params.coordSys.y + params.coordSys.height - coordinates.at(-1).height / 2 - 2;
+                coordinates.forEach((item, index) => {
+                    if (index) item.y = Math.max(item.y, coordinates[index - 1].y + (coordinates[index - 1].height + item.height) / 2 + 4);
+                });
+                const overflow = coordinates.at(-1).y - bottom;
+                if (overflow > 0) coordinates.forEach((item) => { item.y -= overflow; });
+                const underflow = top - coordinates[0].y;
+                if (underflow > 0) coordinates.forEach((item) => { item.y += underflow; });
+                const centerX = coordinates[0].x;
+                const labelX = centerX + 38;
+                const children = [];
+                coordinates.forEach((item) => {
+                    children.push({
+                        type: "line",
+                        shape: { x1: centerX + 12, y1: item.valueY, x2: centerX + 30, y2: item.y },
+                        style: { stroke: "rgba(220,232,250,.48)", lineWidth: .8 },
+                    });
+                    if (item.value === summary.whiskerMin || item.value === summary.whiskerMax) {
+                        children.push({
+                            type: "line",
+                            shape: { x1: centerX - 9, y1: item.valueY, x2: centerX + 9, y2: item.valueY },
+                            style: { stroke: boxColor, lineWidth: 3 },
+                        });
+                    }
+                    children.push({
+                        type: "text",
+                        style: {
+                            x: labelX, y: item.y, text: item.text, fill: CHART_TEXT,
+                            font: compact ? '10px "Segoe UI", Arial, sans-serif' : '11px "Segoe UI", Arial, sans-serif',
+                            lineHeight: compact ? 13 : 15,
+                            textAlign: "left", textVerticalAlign: "middle",
+                            textBackgroundColor: "rgba(4,22,49,.72)", textPadding: [2, 4], borderRadius: 3,
+                        },
+                    });
+                });
+                return { type: "group", children };
             },
-            {
-                name: "Média",
-                type: "scatter",
-                data: summaries.map((summary, index) => [index, summary.mean]),
-                symbol: "circle",
-                symbolSize: 9,
-                itemStyle: { color: chartPalette[1], borderColor: "#ffffff", borderWidth: 2 },
-                emphasis: { scale: 1.35 },
-            },
-        ],
-        dataZoom: chartDataZoom("cbox", names.length, "x", false, names),
+        }, {
+            name: "Valores atípicos",
+            type: "scatter",
+            symbolSize: 9,
+            data: summary.outliers.map((value) => [names[0], value]),
+            itemStyle: { color: "#ffbd63", borderColor: "#fff1d7", borderWidth: 1.5 },
+        }],
     });
 }
 
@@ -1205,29 +1392,66 @@ function renderBoxplot(analysis) {
 function renderKpis(container, stats, grouped) {
     clearElement(container);
     if (!stats) return;
-    const mode = grouped ? formatNumber(stats.mode) : (stats.mode_note || (stats.mode?.length ? stats.mode.map(formatNumber).join(" / ") : "—"));
+    const mode = grouped ? (stats.mode_note || formatNumber(stats.mode)) : (stats.mode_note || (stats.mode?.length ? stats.mode.map(formatNumber).join(" / ") : "—"));
     const rows = grouped
-        ? [["Média", stats.mean], ["Mediana", stats.median], ["Moda", stats.mode], ["Q1 (25%)", stats.q1], ["Q2 (50%)", stats.q2], ["Q3 (75%)", stats.q3]]
+        ? [["Média estimada", stats.mean], ["Mediana estimada", stats.median], ["Moda", mode], ["Q1 (25%)", stats.q1], ["Q2 (50%)", stats.q2], ["Q3 (75%)", stats.q3]]
         : [["Média", stats.mean], ["Mediana", stats.median], ["Moda", mode], ["Q1 (25%)", stats.q1], ["Q2 (50%)", stats.q2], ["Q3 (75%)", stats.q3]];
     rows.forEach(([label, value]) => {
         const card = document.createElement("div"); card.className = "kpi";
         const caption = document.createElement("small"); caption.textContent = label;
         const result = document.createElement("b"); result.textContent = typeof value === "string" ? value : formatNumber(value);
+        if (typeof value === "string" && value.length > 16) result.classList.add("kpi-text");
         card.append(caption, result); container.appendChild(card);
     });
 }
 
-function renderGroupedTable(rows) {
+function renderGroupedTable(analysis) {
+    const rows = analysis.frequency_table;
     clearElement(elements.tgr);
     if (!rows?.length) return;
+    const reported = analysis.grouping?.source === "reported_intervals";
+    elements.groupedVariable.textContent = analysis.column;
+    const method = reported ? "Faixas originais da planilha" : analysis.grouping?.method === "manual" ? "Classes definidas manualmente" : "Classes calculadas automaticamente";
+    elements.groupedMethod.textContent = `${method} · ${formatInteger(rows.length)} ${rows.length === 1 ? "classe" : "classes"} · ${formatInteger(analysis.valid_count)} respostas`;
+    elements.groupedMeasuresNote.textContent = reported && analysis.grouping?.note
+        ? analysis.grouping.note
+        : `${analysis.grouping?.note || ""} ${analysis.grouped_statistics?.note || "Média estimada pelos pontos médios; mediana e quartis por interpolação das classes."}`.trim();
     const table = document.createElement("table");
+    table.className = "reference-frequency-table";
+    table.setAttribute("aria-label", "Tabela de intervalos, frequência e frequência acumulada");
     const head = table.createTHead().insertRow();
-    ["Classe", "Freq. (fi)", "Acum. (Fi)"].forEach((label) => { const cell = document.createElement("th"); cell.textContent = label; head.appendChild(cell); });
+    const firstHeader = /\bidade[s]?\b|faixa\s+et[aá]ria/i.test(analysis.column) ? "Idades" : "Intervalos";
+    [firstHeader, "Frequência", "Frequência Acumulada"].forEach((label, index) => {
+        const cell = document.createElement("th"); cell.scope = "col";
+        const title = document.createElement("span"); title.className = "frequency-heading";
+        if (index === 2) {
+            title.append("Frequência", document.createElement("br"), "Acumulada");
+        } else title.textContent = label;
+        cell.appendChild(title);
+        if (index) {
+            const formula = document.createElement("span"); formula.className = "frequency-formula";
+            const symbol = document.createElement("i"); symbol.textContent = "f";
+            const subscript = document.createElement("sub"); subscript.textContent = index === 1 ? "i" : "ac";
+            formula.append("(", symbol, subscript, ")"); cell.appendChild(formula);
+        }
+        head.appendChild(cell);
+    });
     const body = table.createTBody();
     rows.forEach((row) => {
         const tr = body.insertRow();
-        [row.value, row.frequency, row.cumulative_frequency].forEach((value) => { const cell = tr.insertCell(); cell.textContent = String(value ?? "—"); });
+        const interval = tr.insertCell();
+        if (Number.isFinite(row.lower) && Number.isFinite(row.upper)) {
+            const bound = (value) => Number(value).toLocaleString("pt-BR", { useGrouping: false, maximumSignificantDigits: 15 });
+            interval.textContent = `${bound(row.lower)} – ${bound(row.upper)}`;
+        } else interval.textContent = row.value;
+        interval.title = row.value;
+        interval.setAttribute("aria-label", row.value);
+        [row.frequency, row.cumulative_frequency].forEach((value) => { tr.insertCell().textContent = formatInteger(value); });
     });
+    const footer = table.createTFoot().insertRow();
+    const totalLabel = document.createElement("th"); totalLabel.scope = "row"; totalLabel.textContent = "TOTAL"; footer.appendChild(totalLabel);
+    footer.insertCell().textContent = formatInteger(analysis.valid_count);
+    footer.insertCell();
     elements.tgr.appendChild(table);
 }
 
@@ -1237,7 +1461,7 @@ function renderDownloads(availability) {
     const frequencyRows = distributionFrequencyRows(analysis);
     const makeRows = (headers, rows) => [headers, ...rows];
     const specs = [];
-    const frequencyLabel = usesGroupedDistribution(analysis) ? "Intervalo de classe" : "Categoria";
+    const frequencyLabel = usesGroupedDistribution(analysis) ? `${analysis.column} (intervalo de classe)` : analysis.column;
     const frequencies = () => makeRows([frequencyLabel, "Frequência"], frequencyRows.map((row) => [row.value, row.frequency]));
 
     specs.push({ key: "bar", title: "Barras", filename: "barras", rows: frequencies, chartId: "cbar", chartIndex: 0 });
@@ -1248,7 +1472,8 @@ function renderDownloads(availability) {
     specs.push({ key: "rawtable", title: "Tabela geral", filename: "dados_da_planilha", fullDataset: true });
     if (availability.dot) specs.push({ key: "dot", title: "Ponto", filename: "ponto", rows: () => {
         const values = scatterChartPayload(analysis);
-        return makeRows([values.scatter_x_label, values.scatter_y_label], values.series_x.map((x, index) => [x, values.series_y[index]]));
+        const xLabel = elements.secondaryColumn.value ? values.scatter_x_label : "Ordem da resposta";
+        return makeRows([xLabel, values.scatter_y_label], values.series_x.map((x, index) => [x, values.series_y[index]]));
     }, chartId: "cdot", chartIndex: 6 });
     if (availability.line) specs.push({ key: "line", title: "Linha", filename: "linha", rows: () => {
         const values = analysis.charts;
@@ -1260,14 +1485,13 @@ function renderDownloads(availability) {
         const rows = grouped.frequency_table;
         return makeRows(["Classe", "Limite superior", "Frequência acumulada"], rows.map((row) => [row.value, row.upper, row.cumulative_frequency]));
     }, chartId: "cogv", chartIndex: 8 });
-    if (availability.blk) specs.push({ key: "blk", title: "Blockspot", filename: "blockspot", rows: () => {
-        const heatmap = blockspotData();
-        return makeRows(["Grupo", ...heatmap.metric_labels], heatmap.group_labels.map((label, index) => [label, ...heatmap.values[index]]));
-    }, chartId: "blkb", chartIndex: 9 });
-    if (availability.box) specs.push({ key: "box", title: "Caixa (boxplot)", filename: "caixa", rows: () => {
-        const summaries = state.boxSummaries || [];
-        return makeRows(["Grupo", "n", "Mínimo", "Q1", "Mediana", "Q3", "Máximo", "Média"], summaries.map((item) => [item.label, item.n, item.min, item.q1, item.median, item.q3, item.max, item.mean]));
-    }, chartId: "cbox", chartIndex: 10 });
+    if (availability.box) specs.push({ key: "box", title: "Boxplot", filename: "boxplot", rows: () => {
+        const summary = state.boxSummaries?.[0];
+        if (!summary) return [];
+        return makeRows(["Variável", "n", "Mínimo amostral", "Cerca inferior", "Bigode inferior", "Q1", "Mediana", "Q3", "Bigode superior", "Cerca superior", "Máximo amostral", "Valores atípicos", "IQR", "Média"], [
+            [analysis.column, summary.n, summary.min, summary.lowerFence, summary.whiskerMin, summary.q1, summary.median, summary.q3, summary.whiskerMax, summary.upperFence, summary.max, summary.outliers.join(" | "), summary.iqr, summary.mean],
+        ]);
+    }, chartId: "cbox", chartIndex: 9 });
     if (availability.su) specs.push({ key: "su", title: "Medidas sem intervalo de classe", filename: "medidas_sem_classe", rows: () => {
         const stats = analysis.statistics;
         return makeRows(["Medida", "Valor"], [["n", analysis.valid_count], ["Mínimo", stats.minimum], ["Q1", stats.q1], ["Mediana", stats.median], ["Q3", stats.q3], ["Máximo", stats.maximum], ["Média", stats.mean], ["Moda", stats.mode_note || (stats.mode || []).join(" / ")]]);
@@ -1275,10 +1499,15 @@ function renderDownloads(availability) {
     if (availability.sg) specs.push({ key: "sg", title: "Medidas com intervalo de classe", filename: "medidas_com_classe", rows: () => {
         const stats = grouped.grouped_statistics;
         const head = ["Medida", "Valor"];
-        const measures = [["Média", stats.mean], ["Mediana", stats.median], ["Moda", stats.mode], ["Q1", stats.q1], ["Q2", stats.q2], ["Q3", stats.q3]];
-        return [head, ...measures, ["", ""], ["Classe", "fi"], ...grouped.frequency_table.map((row) => [row.value, row.frequency])];
+        const measures = [["Variável", analysis.column], ["Método das classes", grouped.grouping?.source === "reported_intervals" ? "Faixas originais da planilha" : grouped.grouping?.method || "automático"], ["n", grouped.valid_count], ["Média estimada", stats.mean], ["Mediana estimada", stats.median], ["Moda", stats.mode_note || stats.mode], ["Q1", stats.q1], ["Q2", stats.q2], ["Q3", stats.q3], ["Origem dos intervalos", grouped.grouping?.note || ""], ["Observação", stats.note]];
+        return [head, ...measures, ["", ""], ["Classe", "Limite inferior", "Limite superior", "Ponto médio (xi)", "fi", "Fi", "%"], ...grouped.frequency_table.map((row) => [row.value, row.lower, row.upper, row.midpoint, row.frequency, row.cumulative_frequency, row.percentage]), ["Total", "", "", "", grouped.valid_count, grouped.valid_count, 100]];
     } });
 
+    specs.forEach((spec) => {
+        spec.contextLabel = spec.fullDataset ? null : chartContextLabel(spec.key, analysis);
+        const context = spec.fullDataset ? (state.fileName || "planilha").replace(/\.[^.]+$/, "") : spec.contextLabel;
+        spec.filename = `${spec.filename}_${filenamePart(context)}`;
+    });
     state.downloads = specs;
     elements.dash.querySelectorAll(".chart-download").forEach((menu) => menu.remove());
     specs.forEach((spec) => {
@@ -1317,6 +1546,8 @@ function setAvailability(key, available, message) {
 function pickChart(index) {
     const previousChart = state.activeChart;
     let nextChart = Math.max(0, Math.min(index, chartItems.length - 1));
+    const nextKey = chartItems[nextChart]?.[0];
+    if (nextKey === "box" && !elements.typeSelect.value.startsWith("quantitative_")) nextChart = 0;
     if (state.chartAvailability?.[chartItems[nextChart]?.[0]] === false) {
         nextChart = chartItems.findIndex(([key]) => state.chartAvailability[key] !== false);
     }
@@ -1324,6 +1555,17 @@ function pickChart(index) {
     chartItems.forEach(([key], i) => {
         const card = document.getElementById(`cd_${key}`);
         if (card) card.hidden = i !== state.activeChart;
+        const head = card?.querySelector(".chart-head");
+        if (head) {
+            let role = head.querySelector(".chart-slot");
+            if (!role) {
+                role = document.createElement("span");
+                role.className = "chart-slot";
+                head.appendChild(role);
+            }
+            role.textContent = i === state.activeChart ? "GRÁFICO PRINCIPAL" : "";
+            role.hidden = i !== state.activeChart;
+        }
     });
     elements.pk.querySelectorAll("button[data-i]").forEach((button, i) => {
         const active = i === state.activeChart;
@@ -1331,8 +1573,20 @@ function pickChart(index) {
         button.setAttribute("aria-selected", String(active));
     });
     syncTypeControls();
+    syncVariableSummary();
     resizeActiveChart();
     if (state.activeChart === 5 && (previousChart !== 5 || state.tableSheet !== state.sheet)) loadTablePage(0);
+}
+
+function observeChartSizes() {
+    if (!window.ResizeObserver) return;
+    const observer = new ResizeObserver((entries) => {
+        const activeId = chartItems[state.activeChart]?.[2];
+        if (entries.some((entry) => entry.target.id === activeId && entry.contentRect.width > 0 && entry.contentRect.height > 0)) {
+            resizeActiveChart();
+        }
+    });
+    document.querySelectorAll(".chart-engine").forEach((element) => observer.observe(element));
 }
 
 function resizeActiveChart() {
@@ -1345,18 +1599,29 @@ function resizeActiveChart() {
     });
 }
 
-function handleDownloadClick(event) {
-    const csv = event.target.closest("button[data-csv]");
-    const png = event.target.closest("button[data-png]");
-    if (csv) {
-        const spec = state.downloads.find((item) => item.key === csv.dataset.csv);
-        if (spec?.fullDataset) downloadFullDatasetCsv(spec).catch((error) => setAnalysisError(error.message));
-        else if (spec) downloadCsv(spec);
-    } else if (png) {
-        const spec = state.downloads.find((item) => item.key === png.dataset.png);
-        if (spec) downloadPng(spec);
+async function handleDownloadClick(event) {
+    const button = event.target.closest("button[data-csv], button[data-png]");
+    if (!button || button.disabled) return;
+    const spec = state.downloads.find((item) => item.key === (button.dataset.csv || button.dataset.png));
+    if (!spec) return;
+    const menu = button.closest(".chart-download");
+    const buttons = [...menu.querySelectorAll("button")];
+    const originalText = button.textContent;
+    buttons.forEach((action) => { action.disabled = true; });
+    menu.setAttribute("aria-busy", "true");
+    button.textContent = "Gerando arquivo…";
+    try {
+        if (button.dataset.png) await downloadPng(spec);
+        else if (spec.fullDataset) await downloadFullDatasetCsv(spec);
+        else downloadCsv(spec);
+        menu.open = false;
+    } catch (error) {
+        setAnalysisError(`Não foi possível baixar o arquivo. ${error.message}`);
+    } finally {
+        buttons.forEach((action) => { action.disabled = false; });
+        button.textContent = originalText;
+        menu.removeAttribute("aria-busy");
     }
-    if (csv || png) event.target.closest("details")?.removeAttribute("open");
 }
 
 function downloadCsv(spec) {
@@ -1389,24 +1654,85 @@ async function downloadFullDatasetCsv(spec) {
     downloadBlob(`${spec.filename}.csv`, `\ufeff${csv}`, "text/csv;charset=utf-8");
 }
 
-function downloadPng(spec) {
-    const previousTab = state.activeTab;
-    const previousChart = state.activeChart;
-    selectTab("dash");
-    pickChart(spec.chartIndex);
-    requestAnimationFrame(() => {
-        const chart = renderChart(spec.chartId);
-        if (chart) {
-            chart.resize();
-            const link = document.createElement("a");
-            const backgroundColor = ["pie", "pizza"].includes(spec.key) ? PIE_SURFACE : "#ffffff";
-            link.href = chart.getDataURL({ type: "png", pixelRatio: 1, backgroundColor });
-            link.download = `${spec.filename}.png`;
-            link.click();
+async function downloadPng(spec) {
+    const option = chartOptions[spec.chartId];
+    const source = document.getElementById(spec.chartId);
+    if (!option || !source || !window.echarts) throw new Error("O gráfico ainda não está pronto.");
+    const width = Math.max(640, Math.round(source.clientWidth));
+    const height = Math.max(360, Math.round(source.clientHeight));
+    const host = document.createElement("div");
+    host.className = "chart-export-surface";
+    host.style.width = `${width}px`;
+    host.style.height = `${height}px`;
+    host.setAttribute("aria-hidden", "true");
+    document.body.appendChild(host);
+    let exportChart;
+    try {
+        exportChart = window.echarts.init(host, null, { renderer: "canvas", width, height });
+        exportChart.setOption({ ...option, animation: false, animationDuration: 0, animationDurationUpdate: 0 }, { notMerge: true, lazyUpdate: false });
+        const image = new Image();
+        await new Promise((resolve, reject) => {
+            image.onload = resolve;
+            image.onerror = () => reject(new Error("Não foi possível preparar a imagem do gráfico."));
+            image.src = exportChart.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: PIE_SURFACE });
+        });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Seu navegador não conseguiu gerar a imagem.");
+        const padding = 24;
+        const lineHeight = 24;
+        const titleFont = '600 17px "Segoe UI", Arial, sans-serif';
+        context.font = titleFont;
+        const lines = wrapCanvasText(context, spec.contextLabel || spec.title, width - padding * 2);
+        const headerHeight = padding * 2 + lines.length * lineHeight + 20;
+        canvas.width = width * 2;
+        canvas.height = (height + headerHeight) * 2;
+        context.scale(2, 2);
+        context.fillStyle = PIE_SURFACE;
+        context.fillRect(0, 0, width, height + headerHeight);
+        context.font = titleFont;
+        context.textBaseline = "top";
+        context.fillStyle = PIE_TEXT;
+        lines.forEach((line, index) => context.fillText(line, padding, padding + index * lineHeight));
+        context.font = '12px "Segoe UI", Arial, sans-serif';
+        context.fillStyle = CHART_SUBTEXT;
+        context.fillText(spec.title, padding, padding + lines.length * lineHeight + 4);
+        context.drawImage(image, 0, headerHeight, width, height);
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!blob) throw new Error("Não foi possível gerar o PNG.");
+        downloadBlob(`${spec.filename}.png`, blob, "image/png");
+    } finally {
+        exportChart?.dispose();
+        host.remove();
+    }
+}
+
+function wrapCanvasText(context, text, width) {
+    const lines = [];
+    let line = "";
+    for (const word of String(text).trim().split(/\s+/)) {
+        const candidate = line ? `${line} ${word}` : word;
+        if (context.measureText(candidate).width <= width) {
+            line = candidate;
+            continue;
         }
-        selectTab(previousTab);
-        pickChart(previousChart);
-    });
+        if (line) lines.push(line);
+        line = "";
+        for (const character of word) {
+            if (line && context.measureText(line + character).width > width) {
+                lines.push(line);
+                line = "";
+            }
+            line += character;
+        }
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [""];
+}
+
+function filenamePart(value) {
+    return String(value || "variavel").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 180).replace(/_+$/, "") || "variavel";
 }
 
 function downloadTemplate() {
@@ -1427,8 +1753,8 @@ async function removeDataset() {
     state.analysis = null;
     state.groupedAnalysis = null;
     state.scatterAnalysis = null;
-    state.blockspotAnalysis = null;
     state.downloads = [];
+    state.activeChart = 0;
     state.tablePage = 0;
     state.tableRowCount = 0;
     state.tableColumns = [];
@@ -1440,9 +1766,14 @@ async function removeDataset() {
     Object.keys(chartOptions).forEach((key) => delete chartOptions[key]);
     elements.datasetSettings.hidden = true;
     elements.emptyDash.hidden = false;
+    elements.validCount.textContent = "—";
+    elements.missingCount.textContent = "—";
+    elements.distinctCount.textContent = "—";
+    elements.distinctLabel.textContent = "Categorias";
     elements.flt.hidden = true;
     elements.gf.disabled = true;
     elements.gf.innerHTML = "";
+    populateVariableTypeOptions(null);
     elements.file.value = "";
     elements.dash.querySelectorAll(".chart-download").forEach((menu) => menu.remove());
     clearElement(elements.datasetTable);
@@ -1491,9 +1822,6 @@ function addOption(select, value, label, selected) {
 }
 
 function selectedColumn() { return state.columns.find((column) => column.name === elements.gf.value); }
-function parseOrder(value) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
-function blockspotData() { return state.analysis?.charts?.group_heatmap || state.blockspotAnalysis?.charts?.group_heatmap || null; }
-
 function topFrequencies(rows, maxCategories = 12) {
     if (rows.length <= maxCategories) return rows;
     const top = rows.slice(0, maxCategories - 1);
@@ -1502,7 +1830,7 @@ function topFrequencies(rows, maxCategories = 12) {
 }
 
 function summaryStats(values) {
-    const clean = values.map(Number).filter(Number.isFinite);
+    const clean = values.filter((value) => value !== null && value !== undefined && value !== "").map(Number).filter(Number.isFinite);
     if (!clean.length) return { n: 0 };
     const sorted = [...clean].sort((a, b) => a - b);
     const quantile = (p) => {
@@ -1514,10 +1842,19 @@ function summaryStats(values) {
     clean.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
     const highest = Math.max(...counts.values());
     const modes = [...counts.entries()].filter(([, count]) => count === highest).map(([value]) => value);
+    const q1 = quantile(.25);
+    const median = quantile(.5);
+    const q3 = quantile(.75);
+    const iqr = q3 - q1;
+    const lowerFence = q1 - 1.5 * iqr;
+    const upperFence = q3 + 1.5 * iqr;
+    const inliers = sorted.filter((value) => value >= lowerFence && value <= upperFence);
+    const outliers = sorted.filter((value) => value < lowerFence || value > upperFence);
     return {
         n: clean.length, min: sorted[0], max: sorted[sorted.length - 1],
         mean: clean.reduce((sum, value) => sum + value, 0) / clean.length,
-        q1: quantile(.25), median: quantile(.5), q3: quantile(.75),
+        q1, median, q3, iqr, lowerFence, upperFence,
+        whiskerMin: inliers[0], whiskerMax: inliers[inliers.length - 1], outliers,
         mode: modes.map(formatNumber).join(" / "),
     };
 }
@@ -1525,6 +1862,13 @@ function summaryStats(values) {
 function formatNumber(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
     return Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+}
+
+function colorWithAlpha(hexColor, alpha) {
+    const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hexColor);
+    if (!match) return hexColor;
+    const [red, green, blue] = match.slice(1).map((component) => parseInt(component, 16));
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function formatInteger(value) { return Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 0 }); }
@@ -1542,8 +1886,12 @@ function csvCell(value) {
 }
 function downloadBlob(name, text, type) {
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([text], { type }));
+    const url = URL.createObjectURL(text instanceof Blob ? text : new Blob([text], { type }));
+    link.href = url;
     link.download = name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    document.body.appendChild(link);
+    try { link.click(); } finally {
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
 }

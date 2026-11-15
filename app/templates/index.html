@@ -4,70 +4,89 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Painel estatístico das respostas dos colaboradores da Fábrica de Luz.">
-    <title>Dashboard de TI — Fábrica de Luz</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='mobile-first-final-2026-10-18') }}">
+    <title>Dashboard de pesquisa — Fábrica de Luz</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='reference-frequency-table-2026-11-15') }}">
+    <script src="{{ url_for('static', filename='js/waves.js', v='realistic-solar-2026-11-14') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/solar-system.js', v='realistic-solar-2026-11-14') }}" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js" defer></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='mobile-first-axes-2026-10-18') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='reference-frequency-table-2026-11-15') }}" defer></script>
 </head>
-<body>
+<body data-view="landing">
+    <canvas id="waveBackground" class="wave-background" data-assets="{{ url_for('static', filename='img/waves/') }}" aria-hidden="true"></canvas>
+    <div id="solarSystem" class="solar-system" data-assets="{{ url_for('static', filename='img/solar-system/') }}" aria-hidden="true"><canvas class="solar-orbits"></canvas><canvas class="solar-bodies"></canvas></div>
     <div class="app-shell">
         <div class="app-workspace">
-            <div class="workspace-heading">
-                <div><span class="eyebrow">PESQUISA & ANÁLISE</span><h1 id="pageTitle">Carregar dados</h1><p id="pageSubtitle">Importe sua base para começar a análise.</p></div>
+            <div class="workspace-heading" id="workspaceHeading" hidden>
+                <div class="heading-copy"><span class="eyebrow">PESQUISA & ANÁLISE</span><h1><button class="heading-home" id="homeLink" type="button" aria-label="Voltar à página inicial">dashboard <span class="heading-divider">|</span> <span id="pageTitle">pesquisa analytics</span></button></h1><p id="pageSubtitle">Importe sua base para começar a análise.</p></div>
                 <div class="dataset-context"><span class="context-label">BASE ATUAL</span><span id="contextFile">Nenhum arquivo carregado</span></div>
             </div>
+            <main id="landing" class="landing-screen" aria-label="Página inicial">
+                <div class="landing-copy">
+                    <span class="eyebrow">PESQUISA & ANÁLISE</span>
+                    <h1>dashboard <span class="landing-divider">|</span> <strong>pesquisa analytics</strong></h1>
+                    <button id="startAnalysis" class="landing-start" type="button">Começar análise <span aria-hidden="true">→</span></button>
+                </div>
+                <p class="solar-credit">Sistema Solar · representação artística sem escala <span>Texturas: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer">Solar System Scope</a> / NASA · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></span></p>
+            </main>
             <div class="dashboard-layout" id="dashboardLayout" hidden>
+                <aside class="dashboard-sidebar" aria-label="Controles e resumo da análise">
                 <section class="card analysis-settings" id="datasetSettings" hidden>
+                    <div class="panel-heading"><span>VISÃO GERAL DOS DADOS</span><span class="panel-dot" aria-hidden="true"></span></div>
                     <div class="data-summary">
                         <div class="file-summary"><strong id="fileName"></strong><span id="fileMeta"></span></div>
                         <div class="dataset-facts"><span><b id="rowCount">0</b> respostas</span><span><b id="columnCount">0</b> colunas</span></div>
                         <button class="btn ghost" id="rst" type="button">Limpar dados</button>
                     </div>
+                    <div class="insight-strip" aria-label="Resumo da variável">
+                        <div><span>Respostas válidas</span><b id="validCount">—</b></div>
+                        <div><span>Valores ausentes</span><b id="missingCount">—</b></div>
+                        <div><span id="distinctLabel">Categorias</span><b id="distinctCount">—</b></div>
+                    </div>
                 <div class="settings-grid">
                     <label class="fld" id="sheetField"><span class="lb">Aba da planilha</span><select id="sheetSelect"></select></label>
                     <label class="fld variable-filter"><span class="lb">Variável da pesquisa</span><select id="gf" disabled></select></label>
                     <label class="fld"><span class="lb">Classificação da variável</span>
-                        <select id="typeSelect" aria-describedby="inferenceHint">
-                            <option value="qualitative_nominal">Qualitativa nominal</option>
-                            <option value="qualitative_ordinal">Qualitativa ordinal</option>
-                            <option value="quantitative_discrete">Quantitativa discreta</option>
-                            <option value="quantitative_continuous">Quantitativa contínua</option>
+                        <select id="typeSelect" aria-describedby="inferenceHint" disabled>
+                            <option value="">Selecione uma variável</option>
                         </select>
                     </label>
-                    <label class="fld" id="ordinalField" hidden><span class="lb">Ordem das categorias</span><input id="ordinalOrder" type="text" placeholder="Baixo, Médio, Alto"></label>
-                    <label class="fld" id="secondaryField" hidden><span class="lb">Eixo Y do gráfico de pontos</span><select id="secondaryColumn"></select></label>
-                    <label class="fld" id="groupField" hidden><span class="lb">Comparar por grupo</span><select id="groupColumn"></select></label>
+                    <div class="fld" id="ordinalField" hidden>
+                        <span class="lb">Ordem das categorias</span>
+                        <div class="ordinal-preview"><span id="ordinalSummary"></span><button id="editOrdinalOrder" type="button">Organizar</button></div>
+                        <p class="ordinal-hint" id="ordinalOrderHint" aria-live="polite"></p>
+                    </div>
+                    <label class="fld" id="secondaryField" hidden><span class="lb">Comparar com outra variável (opcional)</span><select id="secondaryColumn"></select></label>
                 </div>
-                <p class="hintline variable-type-hint" id="inferenceHint" aria-live="polite"></p>
+                <div class="settings-details">
+                <details class="variable-explanation"><summary>Sobre a classificação</summary><p class="hintline variable-type-hint" id="inferenceHint" aria-live="polite"></p></details>
                 <details class="advanced-settings"><summary>Configurar intervalos de classe</summary>
                 <label class="toggle-option"><input id="groupedToggle" type="checkbox"><span>Definir número de classes manualmente</span></label>
                 <label class="fld bins-field" id="binsField" hidden><span class="lb">Número de classes</span><input id="binsInput" type="number" min="2" max="30" placeholder="Automático (Sturges)"></label>
                 </details>
-
-
-                </section>
-                <section id="flt" class="card visualization-panel" hidden>
-                    <span class="lb" id="lbpk">Visualizações</span>
-                <div id="pk" role="tablist" aria-labelledby="lbpk">
-                    <span class="visualization-group">DISTRIBUIÇÃO</span>
-                    <button type="button" data-i="0">Barra</button>
-                    <button type="button" data-i="1">Coluna</button>
-                    <button type="button" data-i="2">Rosca</button>
-                    <button type="button" data-i="3">Pizza</button>
-                    <button type="button" data-i="4">Tabela agrupada</button>
-                    <button type="button" data-i="5">Tabela geral</button>
-                    <span class="visualization-group">RELAÇÕES E EVOLUÇÃO</span>
-                    <button type="button" data-i="6">Ponto</button>
-                    <button type="button" data-i="7">Linha</button>
-                    <span class="visualization-group">ANÁLISE ESTATÍSTICA</span>
-                    <button type="button" data-i="8">Ogiva</button>
-                    <button type="button" data-i="9">Blockspot</button>
-                    <button type="button" data-i="10">Caixa</button>
-                    <button type="button" data-i="11">Medidas sem classe</button>
-                    <button type="button" data-i="12">Medidas com classe</button>
+                </div>
+                <div id="flt" class="visualization-panel" hidden>
+                    <div class="panel-heading"><span id="lbpk">VISUALIZAÇÕES</span><span class="panel-note">GRÁFICO PRINCIPAL</span></div>
+                    <div id="pk" role="tablist" aria-labelledby="lbpk">
+                        <span class="visualization-group">DISTRIBUIÇÃO</span>
+                        <button type="button" data-i="0">Barra</button>
+                        <button type="button" data-i="1">Coluna</button>
+                        <button type="button" data-i="2">Rosca</button>
+                        <button type="button" data-i="3">Pizza</button>
+                        <button type="button" data-i="4">Tabela agrupada</button>
+                        <button type="button" data-i="5">Tabela geral</button>
+                        <span class="visualization-group">RELAÇÕES E EVOLUÇÃO</span>
+                        <button type="button" data-i="6">Ponto</button>
+                        <button type="button" data-i="7">Linha</button>
+                        <span class="visualization-group">ANÁLISE ESTATÍSTICA</span>
+                        <button type="button" data-i="8">Ogiva</button>
+                        <button type="button" data-i="9">Boxplot</button>
+                        <button type="button" data-i="10">Medidas sem classe</button>
+                        <button type="button" data-i="11">Medidas com classe</button>
+                    </div>
                 </div>
                 </section>
-    <main id="dash">
+                </aside>
+    <main id="dash" class="chart-stage">
         <section id="analysisAlert" class="card wide na" role="status" hidden></section>
         <section id="emptyDash" class="card wide empty-state">
             <span class="empty-symbol" aria-hidden="true">▥</span>
@@ -122,9 +141,9 @@
             </div>
         </section>
         <section class="card wide chart-card" id="cd_dot" hidden>
-            <div class="chart-head"><span class="chart-mark scatter" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20h16M4 20V4"/><circle cx="8" cy="15" r="1.5"/><circle cx="12" cy="10" r="1.5"/><circle cx="17" cy="7" r="1.5"/></svg></span><div><h2>Pontos — relação entre variáveis</h2><p>Explore a distribuição e a relação entre os valores numéricos.</p></div></div>
+            <div class="chart-head"><span class="chart-mark scatter" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20h16M4 20V4"/><circle cx="8" cy="15" r="1.5"/><circle cx="12" cy="10" r="1.5"/><circle cx="17" cy="7" r="1.5"/></svg></span><div><h2>Pontos — valores individuais</h2><p>Veja os valores de cada resposta da variável numérica selecionada.</p></div></div>
             <div class="cv"><div id="cdot" class="chart-engine"></div></div>
-            <p class="lg" id="dotAxisContext">Cada ponto representa uma resposta. Faixas usam os pontos médios calculados pelo Python.</p>
+            <p class="lg" id="dotAxisContext">Cada ponto representa uma resposta individual.</p>
             <p class="na" id="na_dot" hidden></p>
         </section>
         <section class="card wide chart-card" id="cd_line" hidden>
@@ -137,25 +156,20 @@
             <div class="cv"><div id="cogv" class="chart-engine"></div></div>
             <p class="na" id="na_ogv" hidden></p>
         </section>
-        <section class="card wide chart-card" id="cd_blk" hidden>
-            <div class="chart-head"><span class="chart-mark heatmap" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></span><div><h2>Mapa de calor — média por grupo</h2><p>Compare as médias por categoria e variável.</p></div></div>
-            <div class="cv"><div id="blkb" class="chart-engine"></div></div>
-            <p class="lg">Quanto mais forte o azul, maior a média naquele grupo dentro de cada coluna. Cada coluna tem sua própria escala.</p>
-            <p class="na" id="na_blk" hidden></p>
-        </section>
         <section class="card wide chart-card" id="cd_box" hidden>
-            <div class="chart-head"><span class="chart-mark box" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v4m0 10v4M8 7h8v10H8zM6 5h12M6 19h12M5 12h3m8 0h3"/></svg></span><div><h2>Caixa — distribuição por grupo</h2><p>Compare mínimo, quartis, mediana, máximo e média.</p></div></div>
+            <div class="chart-head"><span class="chart-mark box" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v4m0 10v4M8 7h8v10H8zM6 5h12M6 19h12M5 12h3m8 0h3"/></svg></span><div><h2>Boxplot — distribuição dos valores</h2><p>Disponível para variáveis numéricas. A caixa mostra Q1–Q3, a linha central é a mediana, os bigodes marcam os valores observados dentro de 1,5×IQR e pontos fora são atípicos.</p></div></div>
             <div class="cv"><div id="cbox" class="chart-engine"></div></div>
-            <p class="lg" id="boxAxisContext" hidden></p>
             <p class="na" id="na_box" hidden></p>
         </section>
         <section class="card wide chart-card" id="cd_su" hidden>
             <div class="chart-head"><div><h2>Média, mediana, moda e quartis — sem intervalo de classe</h2></div></div><div class="kp" id="kun"></div>
-            <p class="lg">Medidas calculadas sobre os valores individuais.</p><p class="na" id="na_su" hidden></p>
+            <p class="lg" id="individualMeasuresNote">Medidas calculadas sobre os valores individuais.</p><p class="na" id="na_su" hidden></p>
         </section>
         <section class="card wide chart-card" id="cd_sg" hidden>
-            <div class="chart-head"><div><h2>Média, mediana, moda e quartis — com intervalo de classe</h2></div></div><div class="kp" id="kgr"></div><div id="tgr"></div>
-            <p class="lg">Medidas aproximadas pelos pontos médios e pela interpolação das classes.</p><p class="na" id="na_sg" hidden></p>
+            <div class="chart-head"><div><h2>Média, mediana, moda e quartis — com intervalo de classe</h2></div></div>
+            <p id="groupedVariable" class="grouped-variable"></p><p id="groupedMethod" class="grouped-method"></p>
+            <div class="kp" id="kgr"></div><div id="tgr"></div>
+            <p class="lg" id="groupedMeasuresNote">Média estimada pelos pontos médios; mediana e quartis por interpolação das classes.</p><p class="na" id="na_sg" hidden></p>
         </section>
     </main>
             </div>
@@ -176,6 +190,15 @@
             <footer>Fábrica de Luz · Pesquisa de TI</footer>
         </div>
     </div>
+    <dialog id="ordinalDialog" class="ordinal-dialog" aria-labelledby="ordinalDialogTitle" aria-describedby="ordinalDialogHelp">
+        <div class="ordinal-dialog-heading"><div><h2 id="ordinalDialogTitle">Organizar categorias</h2><p id="ordinalDialogVariable"></p></div><button id="ordinalClose" class="ordinal-close" type="button" aria-label="Fechar organização de categorias">×</button></div>
+        <div class="ordinal-dialog-intro"><p id="ordinalDialogHelp">Coloque as categorias do menor para o maior nível. Use as setas para mudar a posição.</p><p id="ordinalDialogStatus"></p></div>
+        <div class="ordinal-toolbar"><button id="ordinalReset" class="btn" type="button">Usar sugestão</button><button id="ordinalReverse" class="btn" type="button">Inverter ordem</button></div>
+        <ol id="ordinalList" class="ordinal-list" aria-label="Categorias do menor para o maior nível"></ol>
+        <div id="ordinalPagination" class="ordinal-pagination" hidden><button id="ordinalPrevious" class="btn" type="button">Anteriores</button><span id="ordinalPageLabel"></span><button id="ordinalNext" class="btn" type="button">Próximas</button></div>
+        <span id="ordinalAnnounce" class="sr-only" role="status" aria-live="polite"></span>
+        <div class="ordinal-dialog-actions"><button id="ordinalCancel" class="btn" type="button">Cancelar</button><button id="ordinalApply" class="btn b" type="button">Aplicar ordem</button></div>
+    </dialog>
     <div id="loading" class="loading-overlay" hidden>
         <div class="loader"></div><strong>Processando os dados…</strong><span>Isso pode levar alguns segundos.</span>
     </div>

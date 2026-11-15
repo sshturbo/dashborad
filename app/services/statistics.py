@@ -9,8 +9,11 @@ import pandas as pd
 from app.services.variable_classifier import (
     TYPE_LABELS,
     VARIABLE_TYPES,
+    allowed_variable_types,
     describe_columns,
     extract_number,
+    reported_interval_classes,
+    resolve_ordinal_order,
 )
 
 
@@ -28,6 +31,18 @@ def analyze_column(
         raise ValueError("A coluna selecionada não existe.")
     if variable_type not in VARIABLE_TYPES:
         raise ValueError("O tipo de variável informado é inválido.")
+
+    allowed_types = allowed_variable_types(frame[column])
+    if variable_type not in allowed_types:
+        expected_family = (
+            "quantitativa (discreta ou contínua)"
+            if allowed_types[0].startswith("quantitative_")
+            else "qualitativa (nominal ou ordinal)"
+        )
+        raise ValueError(
+            f"A classificação escolhida não corresponde aos dados da coluna. "
+            f"Esta coluna deve ser classificada como {expected_family}."
+        )
 
     is_quantitative = variable_type.startswith("quantitative_")
     series = frame[column]
@@ -61,16 +76,51 @@ def analyze_column(
     }
 
     if grouped:
-        frequency, actual_bins = grouped_frequency(clean, bins)
+        reported_classes = reported_interval_classes(series)
+        if reported_classes is not None:
+            frequency = _complete_reported_interval_frequency(reported_classes, len(clean))
+            actual_bins = len(frequency)
+            grouping = {
+                "source": "reported_intervals",
+                "method": "original",
+                "class_count": actual_bins,
+                "note": (
+                    "Faixas informadas preservadas e ordenadas pelos limites. "
+                    "Média estimada pelos pontos médios; mediana e quartis por "
+                    "interpolação na classe correspondente; moda indicada pela classe modal."
+                ),
+            }
+        else:
+            frequency, actual_bins = grouped_frequency(clean, bins)
+            method = "manual" if bins is not None else "sturges"
+            grouping = {
+                "source": "generated",
+                "method": method,
+                "class_count": actual_bins,
+                "note": (
+                    "Intervalos de mesma amplitude; número de classes definido "
+                    + ("manualmente." if method == "manual" else "pelo critério de Sturges.")
+                ),
+            }
         analysis["frequency_table"] = frequency
         analysis["bins"] = actual_bins
-        analysis["grouped_statistics"] = grouped_statistics(frequency, len(clean))
+        analysis["grouping"] = grouping
+        analysis["grouped_statistics"] = grouped_statistics(
+            frequency,
+            len(clean),
+            reported_intervals=grouping["source"] == "reported_intervals",
+        )
     else:
         ordered = variable_type != "qualitative_nominal"
+        resolved_ordinal_order = None
+        if variable_type == "qualitative_ordinal":
+            resolved_ordinal_order, order_source = resolve_ordinal_order(clean, ordinal_order)
+            analysis["ordinal_order"] = resolved_ordinal_order
+            analysis["ordinal_order_source"] = order_source
         analysis["frequency_table"] = ungrouped_frequency(
             clean,
             ordered=ordered,
-            ordinal_order=ordinal_order if variable_type == "qualitative_ordinal" else None,
+            ordinal_order=resolved_ordinal_order,
         )
         analysis["bins"] = None
         analysis["grouped_statistics"] = None
@@ -122,7 +172,11 @@ def ungrouped_frequency(
 
     if ordinal_order:
         order_map = {str(value): index for index, value in enumerate(ordinal_order)}
-        counts = counts.sort_index(key=lambda idx: idx.map(lambda value: order_map.get(str(value), len(order_map))))
+        ordered_positions = sorted(
+            range(len(counts)),
+            key=lambda index: (order_map.get(str(counts.index[index]), len(order_map)), index),
+        )
+        counts = counts.iloc[ordered_positions]
     elif ordered:
         try:
             counts = counts.sort_index()
@@ -146,6 +200,25 @@ def ungrouped_frequency(
                 "percentage": count_int / total * 100,
                 "cumulative_frequency": cumulative if ordered else None,
                 "cumulative_percentage": cumulative / total * 100 if ordered else None,
+            }
+        )
+    return rows
+
+
+def _complete_reported_interval_frequency(classes: list[dict], total: int) -> list[dict]:
+    """Add relative and cumulative frequencies to validated source intervals."""
+    cumulative = 0
+    rows: list[dict] = []
+    for source_class in classes:
+        count = int(source_class["frequency"])
+        cumulative += count
+        rows.append(
+            {
+                **source_class,
+                "relative_frequency": count / total,
+                "percentage": count / total * 100,
+                "cumulative_frequency": cumulative,
+                "cumulative_percentage": cumulative / total * 100,
             }
         )
     return rows
@@ -197,26 +270,40 @@ def grouped_frequency(series: pd.Series, bins: int | None = None) -> tuple[list[
     return rows, len(counts)
 
 
-def grouped_statistics(rows: list[dict], total: int) -> dict:
+def grouped_statistics(
+    rows: list[dict], total: int, reported_intervals: bool = False
+) -> dict:
     """Approximate mean, median, mode and quartiles from class intervals."""
     if not rows or total == 0:
         return {}
 
     mean = sum(row["midpoint"] * row["frequency"] for row in rows) / total
     frequencies = [row["frequency"] for row in rows]
-    modal_index = int(np.argmax(frequencies))
-    modal = rows[modal_index]
-    previous_f = frequencies[modal_index - 1] if modal_index > 0 else 0
-    next_f = frequencies[modal_index + 1] if modal_index < len(rows) - 1 else 0
-    d1 = modal["frequency"] - previous_f
-    d2 = modal["frequency"] - next_f
-    width = modal["upper"] - modal["lower"]
-    mode = modal["lower"] + (d1 / (d1 + d2) * width if d1 + d2 else width / 2)
+    maximum_frequency = max(frequencies)
+    modal_rows = [row for row in rows if row["frequency"] == maximum_frequency]
+    modal_classes = [row["value"] for row in modal_rows]
+    mode = None
+    mode_note = None
+    if len(modal_rows) > 1:
+        mode_note = "Classes modais: " + "; ".join(modal_classes)
+    elif reported_intervals:
+        mode_note = "Classe modal: " + modal_classes[0]
+    else:
+        modal = modal_rows[0]
+        modal_index = rows.index(modal)
+        previous_f = frequencies[modal_index - 1] if modal_index > 0 else 0
+        next_f = frequencies[modal_index + 1] if modal_index < len(rows) - 1 else 0
+        d1 = modal["frequency"] - previous_f
+        d2 = modal["frequency"] - next_f
+        width = modal["upper"] - modal["lower"]
+        mode = modal["lower"] + (d1 / (d1 + d2) * width if d1 + d2 else width / 2)
 
     return {
         "mean": _finite(mean),
         "median": _finite(_grouped_quantile(rows, total, 0.5)),
         "mode": _finite(mode),
+        "mode_note": mode_note,
+        "modal_classes": modal_classes,
         "q1": _finite(_grouped_quantile(rows, total, 0.25)),
         "q2": _finite(_grouped_quantile(rows, total, 0.5)),
         "q3": _finite(_grouped_quantile(rows, total, 0.75)),
@@ -259,8 +346,16 @@ def chart_payload(
     payload["date_column"] = date_column
 
     if grouped:
-        payload["cumulative_x"] = [frequency[0]["lower"]] + [row["upper"] for row in frequency]
-        payload["cumulative_y"] = [0] + [row["cumulative_frequency"] for row in frequency]
+        cumulative_x = [frequency[0]["lower"]]
+        cumulative_y = [0]
+        for index, row in enumerate(frequency):
+            cumulative_x.append(row["upper"])
+            cumulative_y.append(row["cumulative_frequency"])
+            if index + 1 < len(frequency) and row["upper"] < frequency[index + 1]["lower"]:
+                cumulative_x.append(frequency[index + 1]["lower"])
+                cumulative_y.append(row["cumulative_frequency"])
+        payload["cumulative_x"] = cumulative_x
+        payload["cumulative_y"] = cumulative_y
     elif any(row["cumulative_frequency"] is not None for row in frequency):
         payload["cumulative_x"] = [row["value"] for row in frequency]
         payload["cumulative_y"] = [row["cumulative_frequency"] for row in frequency]

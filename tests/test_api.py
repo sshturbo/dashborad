@@ -42,6 +42,19 @@ def csv_file() -> BytesIO:
     )
 
 
+def reported_intervals_workbook() -> BytesIO:
+    stream = BytesIO()
+    values = (
+        ["Entre 1 a 15 minutos"] * 29
+        + ["Entre 16 a 30 minutos"] * 20
+        + ["Entre 45 a 60 minutos"]
+    )
+    with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+        pd.DataFrame({"Tempo TI": values}).to_excel(writer, sheet_name="Dados", index=False)
+    stream.seek(0)
+    return stream
+
+
 def test_health(client):
     response = client.get("/api/health")
     assert response.status_code == 200
@@ -58,6 +71,9 @@ def test_upload_and_analyze_workbook(client):
     metadata = upload.get_json()
     assert metadata["row_count"] == 4
     assert metadata["sheet"] == "Dados"
+    columns = {column["name"]: column for column in metadata["columns"]}
+    assert columns["Categoria"]["allowed_types"] == ["qualitative_nominal", "qualitative_ordinal"]
+    assert columns["Quantidade"]["allowed_types"] == ["quantitative_discrete", "quantitative_continuous"]
 
     analysis = client.post(
         "/api/analysis",
@@ -73,6 +89,83 @@ def test_upload_and_analyze_workbook(client):
     result = analysis.get_json()
     assert result["statistics"]["mean"] == 2.5
     assert result["statistics"]["median"] == 2.0
+
+
+def test_reported_interval_detection_and_grouping_metadata_are_exposed_by_api(client):
+    upload = client.post(
+        "/api/datasets",
+        data={"file": (reported_intervals_workbook(), "tempos.xlsx")},
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 201
+    metadata = upload.get_json()
+    column = next(item for item in metadata["columns"] if item["name"] == "Tempo TI")
+    assert column["has_reported_intervals"] is True
+
+    response = client.post(
+        "/api/analysis",
+        json={
+            "dataset_id": metadata["dataset_id"],
+            "sheet": metadata["sheet"],
+            "column": "Tempo TI",
+            "variable_type": "quantitative_continuous",
+            "grouped": True,
+            "bins": 3,
+        },
+    )
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result["grouping"]["source"] == "reported_intervals"
+    assert result["grouping"]["method"] == "original"
+    assert result["grouping"]["class_count"] == 3
+    assert result["grouping"]["note"]
+    assert result["grouped_statistics"]["mean"] == pytest.approx(14.89)
+    assert [row["frequency"] for row in result["frequency_table"]] == [29, 20, 1]
+
+
+def test_analysis_api_rejects_classification_from_the_wrong_family(client):
+    upload = client.post(
+        "/api/datasets",
+        data={"file": (excel_file(), "pesquisa.xlsx")},
+        content_type="multipart/form-data",
+    )
+    dataset_id = upload.get_json()["dataset_id"]
+    response = client.post(
+        "/api/analysis",
+        json={
+            "dataset_id": dataset_id,
+            "sheet": "Dados",
+            "column": "Categoria",
+            "variable_type": "quantitative_discrete",
+        },
+    )
+    assert response.status_code == 400
+    assert "classificada como qualitativa" in response.get_json()["error"]
+
+
+def test_ordinal_analysis_api_returns_default_category_order(client):
+    upload = client.post(
+        "/api/datasets",
+        data={"file": (excel_file(), "pesquisa.xlsx")},
+        content_type="multipart/form-data",
+    )
+    dataset_id = upload.get_json()["dataset_id"]
+
+    response = client.post(
+        "/api/analysis",
+        json={
+            "dataset_id": dataset_id,
+            "sheet": "Dados",
+            "column": "Categoria",
+            "variable_type": "qualitative_ordinal",
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result["ordinal_order"] == ["A", "B", "C"]
+    assert result["ordinal_order_source"] == "appearance"
+    assert [row["value"] for row in result["frequency_table"]] == ["A", "B", "C"]
 
 
 def test_rejects_wrong_file_extension(client):

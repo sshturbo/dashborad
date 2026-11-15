@@ -1,0 +1,335 @@
+{
+  "source": {
+    "fileKey": "jsgd4EigFRNAaAv4ySnFLm",
+    "frame": "602:83",
+    "waves": "602:92"
+  },
+  "width": 1280,
+  "height": 720,
+  "layers": [
+    {
+      "file": "background.svg",
+      "x": 0,
+      "y": 0,
+      "width": 1280.0,
+      "height": 720.0,
+      "kind": "background",
+      "blend": "source-over"
+    },
+    {
+      "file": "glow-1.svg",
+      "x": -48.141785,
+      "y": 562.12085,
+      "width": 230.284,
+      "height": 284.267,
+      "kind": "background",
+      "blend": "screen"
+    },
+    {
+      "file": "glow-2.svg",
+      "x": -285.405243,
+      "y": 250.849365,
+      "width": 429.81,
+      "height": 486.329,
+      "kind": "background",
+      "blend": "screen"
+    },
+    {
+      "file": "glow-3.svg",
+      "x": 895.835724,
+      "y": 118.694427,
+      "width": 1050.13,
+      "height": 1157.72,
+      "kind": "background",
+      "blend": "screen"
+    },
+    {
+      "file": "wave-00.svg",
+      "x": 5.911865,
+      "y": 566.625488,
+      "width": 667.717,
+      "height": 181.224,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-01.svg",
+      "x": 7.391121,
+      "y": -274.075012,
+      "width": 602.081,
+      "height": 1059.36,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-02.svg",
+      "x": 9.892044,
+      "y": 563.653015,
+      "width": 646.576,
+      "height": 187.397,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-03.svg",
+      "x": 11.641876,
+      "y": 538.754028,
+      "width": 628.205,
+      "height": 215.308,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-04.svg",
+      "x": 10.024841,
+      "y": 513.502991,
+      "width": 613.708,
+      "height": 243.383,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-05.svg",
+      "x": 5.552353,
+      "y": 487.937988,
+      "width": 602.56,
+      "height": 271.552,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-06.svg",
+      "x": -0.964401,
+      "y": 462.090027,
+      "width": 593.946,
+      "height": 299.792,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-07.svg",
+      "x": -8.906799,
+      "y": 435.987,
+      "width": 587.264,
+      "height": 328.104,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-08.svg",
+      "x": -17.854553,
+      "y": 409.652039,
+      "width": 582.128,
+      "height": 356.488,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-09.svg",
+      "x": -27.525551,
+      "y": 383.102966,
+      "width": 578.322,
+      "height": 384.945,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-10.svg",
+      "x": -37.726356,
+      "y": 356.359009,
+      "width": 575.764,
+      "height": 413.472,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-11.svg",
+      "x": -48.324436,
+      "y": 329.434021,
+      "width": 574.23,
+      "height": 442.094,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-12.svg",
+      "x": -59.225262,
+      "y": 302.338989,
+      "width": 573.203,
+      "height": 470.793,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-13.svg",
+      "x": -68.976219,
+      "y": 276.406006,
+      "width": 572.592,
+      "height": 499.564,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-14.svg",
+      "x": -72.227516,
+      "y": 256.664978,
+      "width": 572.336,
+      "height": 528.406,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-15.svg",
+      "x": -75.512817,
+      "y": 236.835022,
+      "width": 572.391,
+      "height": 557.318,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-16.svg",
+      "x": -78.824112,
+      "y": 216.903015,
+      "width": 572.719,
+      "height": 586.302,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-17.svg",
+      "x": -82.154076,
+      "y": 196.863007,
+      "width": 573.291,
+      "height": 615.356,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-18.svg",
+      "x": -85.496124,
+      "y": 176.712006,
+      "width": 574.084,
+      "height": 644.48,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-19.svg",
+      "x": -88.845566,
+      "y": 156.447998,
+      "width": 575.082,
+      "height": 673.673,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-20.svg",
+      "x": -92.197693,
+      "y": 136.070007,
+      "width": 576.265,
+      "height": 702.935,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-21.svg",
+      "x": -91.036797,
+      "y": 110.699005,
+      "width": 577.625,
+      "height": 732.266,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-22.svg",
+      "x": -81.662628,
+      "y": 76.268707,
+      "width": 579.153,
+      "height": 761.666,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-23.svg",
+      "x": -72.385506,
+      "y": 41.732697,
+      "width": 580.834,
+      "height": 791.134,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-24.svg",
+      "x": -63.200176,
+      "y": 7.089386,
+      "width": 582.664,
+      "height": 820.669,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-25.svg",
+      "x": -54.103115,
+      "y": -27.663101,
+      "width": 584.638,
+      "height": 850.272,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-26.svg",
+      "x": -45.089603,
+      "y": -62.526093,
+      "width": 586.75,
+      "height": 879.943,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-27.svg",
+      "x": -36.157104,
+      "y": -97.500504,
+      "width": 588.989,
+      "height": 909.679,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-28.svg",
+      "x": -27.301987,
+      "y": -132.587006,
+      "width": 591.363,
+      "height": 939.483,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-29.svg",
+      "x": -18.522591,
+      "y": -167.787003,
+      "width": 593.771,
+      "height": 969.353,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-30.svg",
+      "x": -9.815834,
+      "y": -203.100006,
+      "width": 596.463,
+      "height": 999.288,
+      "kind": "wave",
+      "blend": "source-over"
+    },
+    {
+      "file": "wave-31.svg",
+      "x": -1.18071,
+      "y": -238.526993,
+      "width": 599.224,
+      "height": 1029.29,
+      "kind": "wave",
+      "blend": "source-over"
+    }
+  ]
+}
