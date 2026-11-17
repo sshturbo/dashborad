@@ -82,12 +82,6 @@ function bindEvents() {
     elements.startAnalysis.addEventListener("click", () => selectTab(state.datasetId ? "dash" : "up"));
     elements.homeLink.addEventListener("click", () => selectTab("landing"));
     elements.file.addEventListener("change", (event) => uploadFile(event.target.files[0]));
-    elements.drop.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            elements.file.click();
-        }
-    });
     ["dragenter", "dragover"].forEach((name) => elements.drop.addEventListener(name, (event) => {
         event.preventDefault();
         elements.drop.classList.add("ov");

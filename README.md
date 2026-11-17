@@ -36,7 +36,19 @@ cp .env.example .env
 python run.py
 ```
 
-Acesse `http://127.0.0.1:5000`. Os gráficos usam Apache ECharts por CDN, portanto o navegador precisa de internet para carregar essa biblioteca. O processamento da planilha permanece local.
+Acesse `http://127.0.0.1:5000`. O Apache ECharts é servido pelo próprio projeto, sem depender de uma CDN no navegador. O processamento da planilha permanece no servidor Python.
+
+### Acesso pelo celular na rede local
+
+Para abrir a aplicação em outro aparelho, execute:
+
+```bash
+python -m flask --app run run --host=0.0.0.0 --no-debugger --no-reload
+```
+
+Conecte o celular e o computador à mesma rede Wi-Fi e abra `http://IP-DO-COMPUTADOR:5000` no celular. No Windows, consulte o endereço IPv4 do adaptador de rede com `ipconfig` e, se solicitado, permita o acesso do Python pelo firewall na rede privada. `127.0.0.1` e `localhost` no celular apontam para o próprio celular, não para o computador.
+
+Na tela de importação, toque na área de seleção e escolha um arquivo Excel ou CSV baixado no aparelho. Documentos do Google Planilhas devem ser exportados para um desses formatos antes do envio.
 
 Para gerar uma planilha de demonstração:
 
