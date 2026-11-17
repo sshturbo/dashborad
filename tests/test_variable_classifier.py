@@ -1,4 +1,7 @@
+import json
+
 import pandas as pd
+import pytest
 
 from app.services.variable_classifier import allowed_variable_types, describe_columns, infer_variable_type
 
@@ -94,6 +97,144 @@ def test_column_descriptions_flag_valid_reported_intervals():
 
     descriptions = describe_columns(pd.DataFrame({"Tempo": ["1 a 15", "16 a 30", "45 a 60"]}))
     assert descriptions[0]["has_reported_intervals"] is True
+    assert descriptions[0]["has_open_intervals"] is False
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "+8 horas",
+        "+ 8 horas",
+        "8+ horas",
+        "8+",
+        ">8",
+        ">=8 horas",
+        "≥ 8 horas",
+        "Mais de 8 horas",
+        "Acima de 8 horas",
+        "A partir de 8 horas",
+        "8 ou mais",
+        "8 horas ou mais",
+    ],
+)
+def test_open_lower_ranges_keep_the_unknown_upper_limit(label):
+    from app.services.variable_classifier import extract_number, parse_numeric_interval
+
+    assert parse_numeric_interval(label) == (8.0, None)
+    assert extract_number(label) is None
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "<8",
+        "<= 8 horas",
+        "≤8 horas",
+        "Menos de 8 horas",
+        "Abaixo de 8 horas",
+        "Até 8 horas",
+        "ate 8 horas",
+        "8 ou menos",
+        "8 horas ou menos",
+    ],
+)
+def test_open_upper_ranges_keep_the_unknown_lower_limit(label):
+    from app.services.variable_classifier import extract_number, parse_numeric_interval
+
+    assert parse_numeric_interval(label) == (None, 8.0)
+    assert extract_number(label) is None
+
+
+def test_open_range_bounds_support_decimal_comma_and_negative_values():
+    from app.services.variable_classifier import parse_numeric_interval
+
+    assert parse_numeric_interval("+8,5 horas") == (8.5, None)
+    assert parse_numeric_interval("menos de −2,5 graus") == (None, -2.5)
+
+
+def test_plain_signed_numbers_remain_individual_numeric_values():
+    from app.services.variable_classifier import extract_number, parse_numeric_interval
+
+    for label, expected in [("+8", 8.0), ("-8", -8.0), ("+8,5", 8.5)]:
+        assert parse_numeric_interval(label) is None
+        assert extract_number(label) == expected
+    assert infer_variable_type(pd.Series(["+8", "+9"]))[0] == "quantitative_discrete"
+
+
+def test_hour_survey_ranges_preserve_labels_order_and_open_class():
+    from app.services.variable_classifier import reported_interval_classes
+
+    series = pd.Series(["Entre 5 a 6 horas", "+8 horas", "Entre 7 a 8 horas", "+8 horas"])
+    classes = reported_interval_classes(series)
+
+    assert infer_variable_type(series) == ("quantitative_continuous", None)
+    assert [row["value"] for row in classes] == [
+        "Entre 5 a 6 horas", "Entre 7 a 8 horas", "+8 horas"
+    ]
+    assert [(row["lower"], row["upper"], row["midpoint"], row["frequency"]) for row in classes] == [
+        (5.0, 6.0, 5.5, 1),
+        (7.0, 8.0, 7.5, 1),
+        (8.0, None, None, 2),
+    ]
+    assert sum(row["frequency"] for row in classes) == len(series)
+    # Open limits must serialize as null, never as nonstandard JSON Infinity.
+    assert json.loads(json.dumps(classes, allow_nan=False))[-1]["upper"] is None
+    description = describe_columns(pd.DataFrame({"Horas": series}))[0]
+    assert description["has_reported_intervals"] is True
+    assert description["has_open_intervals"] is True
+    assert description["inferred_type"] == "quantitative_continuous"
+
+
+def test_all_open_classes_combine_equivalent_labels_and_ignore_blank_responses():
+    from app.services.variable_classifier import reported_interval_classes
+
+    series = pd.Series([">8 horas", None, "  ", "Até 5 horas", "+8 horas", float("nan")])
+    classes = reported_interval_classes(series)
+
+    assert [(row["lower"], row["upper"], row["midpoint"], row["frequency"]) for row in classes] == [
+        (None, 5.0, None, 1),
+        (8.0, None, None, 2),
+    ]
+    assert classes[-1]["source_labels"] == [">8 horas", "+8 horas"]
+    description = describe_columns(pd.DataFrame({"Horas": series}))[0]
+    assert description["inferred_type"] == "quantitative_continuous"
+    assert description["missing_count"] == 3
+
+
+def test_empty_responses_do_not_create_an_open_class():
+    from app.services.variable_classifier import reported_interval_classes
+
+    series = pd.Series([None, float("nan"), "", "  "])
+    assert reported_interval_classes(series) is None
+    assert infer_variable_type(series) == ("qualitative_nominal", None)
+    assert describe_columns(pd.DataFrame({"Horas": series})) == []
+
+
+def test_closed_ranges_are_continuous_even_with_integer_midpoints():
+    from app.services.variable_classifier import extract_number
+
+    series = pd.Series(["1 a 3 horas", "4 a 6 horas"])
+    assert [extract_number(value) for value in series] == [2.0, 5.0]
+    assert infer_variable_type(series) == ("quantitative_continuous", None)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["5 a 9 horas", "+8 horas"],
+        ["Até 6 horas", "5 a 8 horas"],
+        ["Acima de 5 horas", "+8 horas"],
+        ["Até 5 horas", "Até 8 horas"],
+        ["Até 8 horas", "+5 horas"],
+        ["Até 5 horas", 8],
+        ["5 a 6 horas", "+8"],
+        ["5 a 6 horas", "sem resposta"],
+    ],
+)
+def test_open_classes_reject_positive_overlap_and_mixed_individual_values(values):
+    from app.services.variable_classifier import reported_interval_classes
+
+    assert reported_interval_classes(pd.Series(values)) is None
 
 
 def test_ignored_google_forms_columns():

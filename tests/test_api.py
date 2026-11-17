@@ -55,6 +55,25 @@ def reported_intervals_workbook() -> BytesIO:
     return stream
 
 
+def open_intervals_workbook() -> BytesIO:
+    stream = BytesIO()
+    frame = pd.DataFrame(
+        {
+            "Tempo": [
+                "Entre 5 a 6 horas", "+8 horas", "Entre 7 a 8 horas",
+                "Entre 5 a 6 horas", "+8 horas", None, "",
+            ],
+            "Nota": [1, 2, 3, 4, 5, 6, 7],
+            "Departamento": ["A", "B", "A", "B", "A", "B", "A"],
+            "Faixa fechada": ["Entre 1 a 3 horas", "Entre 5 a 7 horas"] * 3 + ["Entre 1 a 3 horas"],
+        }
+    )
+    with pd.ExcelWriter(stream, engine="openpyxl") as writer:
+        frame.to_excel(writer, sheet_name="Dados", index=False)
+    stream.seek(0)
+    return stream
+
+
 def test_health(client):
     response = client.get("/api/health")
     assert response.status_code == 200
@@ -121,6 +140,112 @@ def test_reported_interval_detection_and_grouping_metadata_are_exposed_by_api(cl
     assert result["grouping"]["note"]
     assert result["grouped_statistics"]["mean"] == pytest.approx(14.89)
     assert [row["frequency"] for row in result["frequency_table"]] == [29, 20, 1]
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_api_preserves_reported_open_hour_classes_and_exposes_only_grouped_estimates(client, grouped):
+    upload = client.post(
+        "/api/datasets",
+        data={"file": (open_intervals_workbook(), "horas.xlsx")},
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 201
+    metadata = upload.get_json()
+    column = next(item for item in metadata["columns"] if item["name"] == "Tempo")
+    assert column["inferred_type"] == "quantitative_continuous"
+    assert column["has_reported_intervals"] is True
+    assert column["has_open_intervals"] is True
+
+    response = client.post(
+        "/api/analysis",
+        json={
+            "dataset_id": metadata["dataset_id"],
+            "sheet": metadata["sheet"],
+            "column": "Tempo",
+            "variable_type": "quantitative_continuous",
+            "grouped": grouped,
+        },
+    )
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result["valid_count"] == 5
+    assert result["missing_count"] == 2
+    assert result["statistics"] is None
+    assert result["grouped"] is True
+    assert result["grouping"]["source"] == "reported_intervals"
+    assert result["grouping"]["method"] == "original"
+    assert [(row["value"], row["frequency"]) for row in result["frequency_table"]] == [
+        ("Entre 5 a 6 horas", 2), ("Entre 7 a 8 horas", 1), ("+8 horas", 2)
+    ]
+    assert result["frequency_table"][-1]["upper"] is None
+    assert result["frequency_table"][-1]["midpoint"] is None
+    assert result["frequency_table"][-1]["cumulative_frequency"] == 5
+    assert result["grouped_statistics"]["mean"] is None
+    assert result["grouped_statistics"]["q1"] == pytest.approx(5.625)
+    assert result["grouped_statistics"]["median"] == pytest.approx(7.5)
+    assert result["grouped_statistics"]["q3"] is None
+    for key in ("series_x", "series_y", "box_values", "cumulative_x", "cumulative_y"):
+        assert result["charts"][key] == []
+
+
+def test_api_treats_closed_ranges_with_integer_midpoints_as_continuous_grouped_data(client):
+    upload = client.post(
+        "/api/datasets",
+        data={"file": (open_intervals_workbook(), "horas.xlsx")},
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 201
+    metadata = upload.get_json()
+    column = next(item for item in metadata["columns"] if item["name"] == "Faixa fechada")
+    assert column["inferred_type"] == "quantitative_continuous"
+    assert column["has_reported_intervals"] is True
+    assert column["has_open_intervals"] is False
+
+    response = client.post(
+        "/api/analysis",
+        json={
+            "dataset_id": metadata["dataset_id"],
+            "column": "Faixa fechada",
+            "variable_type": "quantitative_continuous",
+            "grouped": False,
+        },
+    )
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result["statistics"] is None
+    assert result["grouped_statistics"]["mean"] == pytest.approx(26 / 7)
+    for key in ("series_x", "series_y", "box_values"):
+        assert result["charts"][key] == []
+
+
+@pytest.mark.parametrize(
+    ("comparison", "expected_message"),
+    [
+        ({"column": "Tempo", "secondary_column": "Nota"}, "valores individuais"),
+        ({"column": "Nota", "secondary_column": "Tempo"}, "valores individuais"),
+        ({"column": "Tempo", "group_column": "Departamento"}, "valores individuais"),
+        ({"column": "Nota", "group_column": "Tempo"}, "coluna categórica"),
+    ],
+)
+def test_analysis_api_rejects_comparisons_that_require_individual_values_from_ranges(client, comparison, expected_message):
+    upload = client.post(
+        "/api/datasets",
+        data={"file": (open_intervals_workbook(), "horas.xlsx")},
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 201
+
+    response = client.post(
+        "/api/analysis",
+        json={
+            "dataset_id": upload.get_json()["dataset_id"],
+            "variable_type": "quantitative_continuous",
+            **comparison,
+        },
+    )
+
+    assert response.status_code == 400
+    assert expected_message in response.get_json()["error"]
 
 
 def test_analysis_api_rejects_classification_from_the_wrong_family(client):

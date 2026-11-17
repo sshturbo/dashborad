@@ -61,6 +61,28 @@ _TEXT_INTERVAL_PATTERN = re.compile(
 _BRACKET_INTERVAL_PATTERN = re.compile(
     rf"\s*[\[(]\s*({_INTERVAL_NUMBER})\s*;\s*({_INTERVAL_NUMBER})\s*[\]\[)]\s*"
 )
+_INTERVAL_UNIT = r"(?:\s*[a-zA-ZÀ-ÿ%][a-zA-ZÀ-ÿ%./²³\s]*)?"
+_OPEN_LOWER_PATTERNS = (
+    rf"(?:>=|≥|>)\s*({_INTERVAL_NUMBER}){_INTERVAL_UNIT}",
+    rf"(?:mais de|acima de|a partir de)\s+({_INTERVAL_NUMBER}){_INTERVAL_UNIT}",
+    rf"({_INTERVAL_NUMBER})\s*\+{_INTERVAL_UNIT}",
+    rf"({_INTERVAL_NUMBER}){_INTERVAL_UNIT}\s+ou mais",
+    # A leading plus is a range marker only with a unit: plain '+8' is +8.
+    rf"\+\s*(\d+(?:\.\d*)?|\.\d+)\s*[a-zA-ZÀ-ÿ%][a-zA-ZÀ-ÿ%./²³\s]*",
+)
+_OPEN_UPPER_PATTERNS = (
+    rf"(?:<=|≤|<)\s*({_INTERVAL_NUMBER}){_INTERVAL_UNIT}",
+    rf"(?:menos de|abaixo de|at[eé])\s+({_INTERVAL_NUMBER}){_INTERVAL_UNIT}",
+    rf"({_INTERVAL_NUMBER}){_INTERVAL_UNIT}\s+ou menos",
+)
+_OPEN_INTERVAL_PATTERNS = tuple(
+    (re.compile(pattern, flags=re.IGNORECASE), lower_bounded)
+    for patterns, lower_bounded in (
+        (_OPEN_LOWER_PATTERNS, True),
+        (_OPEN_UPPER_PATTERNS, False),
+    )
+    for pattern in patterns
+)
 
 
 def _normalize(value: object) -> str:
@@ -157,7 +179,7 @@ def is_ignored_column(name: object) -> bool:
 
 
 def extract_number(value: object) -> float | None:
-    """Extract a numeric value using the rules from the original desktop analyzer."""
+    """Extract a value or a closed range's midpoint, never an open range's bound."""
     if pd.isna(value):
         return None
     if isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, (bool, np.bool_)):
@@ -177,7 +199,8 @@ def extract_number(value: object) -> float | None:
 
     reported_interval = parse_numeric_interval(text)
     if reported_interval is not None:
-        return (reported_interval[0] + reported_interval[1]) / 2
+        lower, upper = reported_interval
+        return (lower + upper) / 2 if lower is not None and upper is not None else None
 
     interval = re.search(
         r"([+-]?\d+(?:\.\d+)?)\s*(?:a|até|-)\s*([+-]?\d+(?:\.\d+)?)",
@@ -199,8 +222,13 @@ def extract_number(value: object) -> float | None:
     return None
 
 
-def parse_numeric_interval(value: object) -> tuple[float, float] | None:
-    """Parse a reported numeric range without collapsing it to its midpoint."""
+def parse_numeric_interval(value: object) -> tuple[float | None, float | None] | None:
+    """Parse closed or one-sided reported ranges without inventing their limits.
+
+    A missing bound is ``None`` rather than infinity so the result is JSON safe.
+    ``+8 horas`` denotes a lower-bounded class, while the plain signed number
+    ``+8`` remains an individual value and is not an interval.
+    """
     if pd.isna(value) or isinstance(value, (int, float, np.integer, np.floating)):
         return None
 
@@ -212,6 +240,13 @@ def parse_numeric_interval(value: object) -> tuple[float, float] | None:
     if match is None:
         match = _TEXT_INTERVAL_PATTERN.fullmatch(text)
     if match is None:
+        for pattern, lower_bounded in _OPEN_INTERVAL_PATTERNS:
+            open_match = pattern.fullmatch(text)
+            if open_match is None:
+                continue
+            bound = float(open_match.group(1))
+            if math.isfinite(bound):
+                return (bound, None) if lower_bounded else (None, bound)
         return None
 
     try:
@@ -229,14 +264,15 @@ def reported_interval_classes(series: pd.Series) -> list[dict] | None:
     Equivalent limits are combined, labels retain their first-seen spelling, and
     the returned classes are sorted by their numeric limits. A positive overlap
     makes the source ambiguous and returns ``None``; touching ranges and gaps are
-    both allowed.
+    both allowed. Open classes retain ``None`` for their unknown limit and
+    midpoint; infinity is used only internally to sort and detect overlap.
     """
     clean = series.dropna()
     clean = clean[clean.astype(str).str.strip() != ""]
     if clean.empty:
         return None
 
-    by_limits: dict[tuple[float, float], dict] = {}
+    by_limits: dict[tuple[float | None, float | None], dict] = {}
     for source_value in clean:
         limits = parse_numeric_interval(source_value)
         if limits is None:
@@ -244,12 +280,13 @@ def reported_interval_classes(series: pd.Series) -> list[dict] | None:
         label = str(source_value).strip()
         item = by_limits.get(limits)
         if item is None:
+            lower, upper = limits
             item = {
                 "value": label,
                 "source_labels": [label],
-                "lower": limits[0],
-                "upper": limits[1],
-                "midpoint": (limits[0] + limits[1]) / 2,
+                "lower": lower,
+                "upper": upper,
+                "midpoint": (lower + upper) / 2 if lower is not None and upper is not None else None,
                 "frequency": 0,
             }
             by_limits[limits] = item
@@ -257,9 +294,17 @@ def reported_interval_classes(series: pd.Series) -> list[dict] | None:
             item["source_labels"].append(label)
         item["frequency"] += 1
 
-    classes = sorted(by_limits.values(), key=lambda item: (item["lower"], item["upper"]))
+    classes = sorted(
+        by_limits.values(),
+        key=lambda item: (
+            item["lower"] if item["lower"] is not None else -math.inf,
+            item["upper"] if item["upper"] is not None else math.inf,
+        ),
+    )
     for previous, current in zip(classes, classes[1:]):
-        if current["lower"] < previous["upper"]:
+        current_lower = current["lower"] if current["lower"] is not None else -math.inf
+        previous_upper = previous["upper"] if previous["upper"] is not None else math.inf
+        if current_lower < previous_upper:
             return None
     return classes
 
@@ -270,7 +315,7 @@ def has_reported_intervals(series: pd.Series) -> bool:
 
 
 def infer_variable_type(series: pd.Series) -> tuple[str, list[str] | None]:
-    """Infer type; a column is numeric when at least 80% of filled values are parseable."""
+    """Recognize reported ranges, then apply the 80% individual numeric rule."""
     clean = series.dropna()
     clean = clean[clean.astype(str).str.strip() != ""]
     if clean.empty:
@@ -278,6 +323,9 @@ def infer_variable_type(series: pd.Series) -> tuple[str, list[str] | None]:
 
     if pd.api.types.is_bool_dtype(clean):
         return "qualitative_nominal", None
+
+    if has_reported_intervals(clean):
+        return "quantitative_continuous", None
 
     extracted = [extract_number(value) for value in clean]
     numeric_values = [value for value in extracted if value is not None]
@@ -315,6 +363,7 @@ def describe_columns(frame: pd.DataFrame) -> list[dict]:
             continue
 
         inferred_type, inferred_order = infer_variable_type(series)
+        interval_classes = reported_interval_classes(series)
         examples = [_json_scalar(value) for value in clean.unique()[:4]]
         descriptions.append(
             {
@@ -323,7 +372,11 @@ def describe_columns(frame: pd.DataFrame) -> list[dict]:
                 "allowed_types": allowed_variable_types(series),
                 "type_label": TYPE_LABELS[inferred_type],
                 "inferred_order": inferred_order,
-                "has_reported_intervals": has_reported_intervals(series),
+                "has_reported_intervals": interval_classes is not None,
+                "has_open_intervals": any(
+                    item["lower"] is None or item["upper"] is None
+                    for item in interval_classes or []
+                ),
                 "missing_count": int(len(series) - len(clean)),
                 "unique_count": int(clean.nunique(dropna=True)),
                 "examples": examples,

@@ -191,6 +191,104 @@ def test_grouped_reported_interval_variants_are_counted_together():
     ]
 
 
+@pytest.mark.parametrize("grouped", [False, True])
+def test_reported_open_intervals_preserve_counts_without_individual_observations(grouped):
+    values = [
+        "Entre 5 a 6 horas", "+8 horas", "Entre 7 a 8 horas",
+        "Entre 5 a 6 horas", "+8 horas", None, "",
+    ]
+
+    result = analyze_column(
+        pd.DataFrame({"Tempo": values}),
+        "Tempo",
+        "quantitative_continuous",
+        grouped=grouped,
+        bins=2,
+    )
+
+    rows = result["frequency_table"]
+    assert result["total_rows"] == 7
+    assert result["valid_count"] == 5
+    assert result["missing_count"] == 2
+    assert result["grouped"] is True
+    assert result["statistics"] is None
+    assert result["grouping"]["source"] == "reported_intervals"
+    assert result["grouping"]["method"] == "original"
+    assert result["grouping"]["class_count"] == 3
+    assert [(row["value"], row["frequency"], row["cumulative_frequency"]) for row in rows] == [
+        ("Entre 5 a 6 horas", 2, 2),
+        ("Entre 7 a 8 horas", 1, 3),
+        ("+8 horas", 2, 5),
+    ]
+    assert rows[-1]["lower"] == 8
+    assert rows[-1]["upper"] is None
+    assert rows[-1]["midpoint"] is None
+    assert sum(row["percentage"] for row in rows) == pytest.approx(100)
+    assert result["grouped_statistics"]["mean"] is None
+    assert result["grouped_statistics"]["q1"] == pytest.approx(5.625)
+    assert result["grouped_statistics"]["median"] == pytest.approx(7.5)
+    assert result["grouped_statistics"]["q2"] == pytest.approx(7.5)
+    assert result["grouped_statistics"]["q3"] is None
+    assert result["grouped_statistics"]["mode"] is None
+    assert result["grouped_statistics"]["modal_classes"] == ["Entre 5 a 6 horas", "+8 horas"]
+    assert result["charts"]["frequencies"] == [2, 1, 2]
+    for key in ("series_x", "series_y", "box_values", "cumulative_x", "cumulative_y"):
+        assert result["charts"][key] == []
+
+
+@pytest.mark.parametrize(
+    ("counts", "q1", "median", "q3"),
+    [
+        ([1, 1, 6], 8.0, None, None),
+        ([6, 1, 1], 5 + 2 / 6, 5 + 4 / 6, 6.0),
+    ],
+)
+def test_open_interval_only_suppresses_quantiles_inside_the_open_class(counts, q1, median, q3):
+    labels = ["Entre 5 a 6 horas", "Entre 7 a 8 horas", "+8 horas"]
+    values = [label for label, count in zip(labels, counts) for _ in range(count)]
+
+    result = analyze_column(pd.DataFrame({"Tempo": values}), "Tempo", "quantitative_continuous")
+
+    estimates = result["grouped_statistics"]
+    assert estimates["mean"] is None
+    for key, expected in (("q1", q1), ("median", median), ("q2", median), ("q3", q3)):
+        if expected is None:
+            assert estimates[key] is None
+        else:
+            assert estimates[key] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_closed_reported_intervals_also_do_not_create_individual_values(grouped):
+    frame = pd.DataFrame({"Tempo": ["Entre 1 a 3 horas", "Entre 5 a 7 horas", "Entre 1 a 3 horas"]})
+
+    result = analyze_column(frame, "Tempo", "quantitative_continuous", grouped=grouped)
+
+    assert result["grouped"] is True
+    assert result["statistics"] is None
+    assert result["valid_count"] == 3
+    assert result["grouping"]["source"] == "reported_intervals"
+    assert [row["frequency"] for row in result["frequency_table"]] == [2, 1]
+    assert result["grouped_statistics"]["mean"] == pytest.approx(10 / 3)
+    assert result["charts"]["cumulative_x"] == [1.0, 3.0, 5.0, 7.0]
+    assert result["charts"]["cumulative_y"] == [0, 2, 2, 3]
+    for key in ("series_x", "series_y", "box_values"):
+        assert result["charts"][key] == []
+
+
+def test_plus_prefixed_numbers_remain_exact_individual_observations():
+    result = analyze_column(
+        pd.DataFrame({"Nota": ["+8", "+8", "+10"]}),
+        "Nota",
+        "quantitative_discrete",
+    )
+
+    assert result["grouped"] is False
+    assert result["valid_count"] == 3
+    assert result["statistics"]["mean"] == pytest.approx(26 / 3)
+    assert result["charts"]["series_y"] == [8.0, 8.0, 10.0]
+
+
 def test_grouped_constant_and_modal_ties_are_reported_without_losing_values():
     constant = analyze_column(
         pd.DataFrame({"Nota": [7, 7, 7]}),

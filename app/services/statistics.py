@@ -46,16 +46,29 @@ def analyze_column(
 
     is_quantitative = variable_type.startswith("quantitative_")
     series = frame[column]
-    clean = _numeric_series(series, column) if is_quantitative else _categorical_series(series)
+    reported_classes = reported_interval_classes(series) if is_quantitative else None
+    reported_intervals = reported_classes is not None
+    open_intervals = reported_intervals and any(row["midpoint"] is None for row in reported_classes)
+    if reported_intervals:
+        clean = series.dropna()
+        clean = clean[clean.astype(str).str.strip() != ""]
+    else:
+        clean = _numeric_series(series, column) if is_quantitative else _categorical_series(series)
     if clean.empty:
         raise ValueError("A coluna selecionada não possui valores válidos para análise.")
 
     if grouped and not is_quantitative:
         raise ValueError("Intervalos de classe são aplicáveis apenas a variáveis quantitativas.")
 
+    if secondary_column and secondary_column in frame.columns and secondary_column != column:
+        if reported_intervals or reported_interval_classes(frame[secondary_column]) is not None:
+            raise ValueError("Comparações por pontos exigem valores individuais; as respostas desta variável já são faixas.")
+
     if group_column:
         if not is_quantitative:
             raise ValueError("Comparações por categoria estão disponíveis para variáveis quantitativas.")
+        if reported_intervals:
+            raise ValueError("Comparações de medidas por categoria exigem valores individuais; as respostas já são faixas.")
         if group_column not in frame.columns or group_column == column:
             raise ValueError("A coluna de agrupamento selecionada não é válida.")
         descriptions = {item["name"]: item for item in describe_columns(frame)}
@@ -68,15 +81,21 @@ def analyze_column(
         "column": column,
         "variable_type": variable_type,
         "type_label": TYPE_LABELS[variable_type],
-        "grouped": grouped,
+        "grouped": grouped or reported_intervals,
+        "has_reported_intervals": reported_intervals,
+        "has_open_intervals": open_intervals,
         "total_rows": int(len(series)),
         "valid_count": int(len(clean)),
         "missing_count": excluded_count,
-        "statistics": quantitative_statistics(clean) if is_quantitative else None,
+        "statistics": quantitative_statistics(clean) if is_quantitative and not reported_intervals else None,
+        "statistics_note": (
+            "As respostas já são faixas, sem valores individuais observados. "
+            "As medidas disponíveis são estimativas calculadas a partir das classes."
+            if reported_intervals else None
+        ),
     }
 
-    if grouped:
-        reported_classes = reported_interval_classes(series)
+    if analysis["grouped"]:
         if reported_classes is not None:
             frequency = _complete_reported_interval_frequency(reported_classes, len(clean))
             actual_bins = len(frequency)
@@ -90,6 +109,14 @@ def analyze_column(
                     "interpolação na classe correspondente; moda indicada pela classe modal."
                 ),
             }
+            if open_intervals:
+                grouping["note"] = (
+                    "Faixas informadas preservadas e ordenadas pelos limites. "
+                    "Há faixa aberta, sem um dos limites: a média não pode ser estimada "
+                    "sem assumir valores adicionais. Mediana e quartis são estimados "
+                    "somente quando a classe correspondente tem os dois limites conhecidos; "
+                    "moda indicada pela classe modal."
+                )
         else:
             frequency, actual_bins = grouped_frequency(clean, bins)
             method = "manual" if bins is not None else "sturges"
@@ -129,8 +156,8 @@ def analyze_column(
         frame=frame,
         column=column,
         clean=clean,
-        is_quantitative=is_quantitative,
-        grouped=grouped,
+        is_quantitative=is_quantitative and not reported_intervals,
+        grouped=analysis["grouped"],
         frequency=analysis["frequency_table"],
         secondary_column=secondary_column,
         group_column=group_column,
@@ -277,7 +304,8 @@ def grouped_statistics(
     if not rows or total == 0:
         return {}
 
-    mean = sum(row["midpoint"] * row["frequency"] for row in rows) / total
+    has_open_classes = any(row["midpoint"] is None for row in rows)
+    mean = None if has_open_classes else sum(row["midpoint"] * row["frequency"] for row in rows) / total
     frequencies = [row["frequency"] for row in rows]
     maximum_frequency = max(frequencies)
     modal_rows = [row for row in rows if row["frequency"] == maximum_frequency]
@@ -307,7 +335,12 @@ def grouped_statistics(
         "q1": _finite(_grouped_quantile(rows, total, 0.25)),
         "q2": _finite(_grouped_quantile(rows, total, 0.5)),
         "q3": _finite(_grouped_quantile(rows, total, 0.75)),
-        "note": "Valores aproximados, calculados pelos pontos médios e pela interpolação das classes.",
+        "note": (
+            "Há faixa aberta: média indisponível. Mediana e quartis são aproximações "
+            "por interpolação apenas nas classes com ambos os limites conhecidos."
+            if has_open_classes else
+            "Valores aproximados, calculados pelos pontos médios e pela interpolação das classes."
+        ),
     }
 
 
@@ -345,7 +378,7 @@ def chart_payload(
     payload["date_y"] = date_y
     payload["date_column"] = date_column
 
-    if grouped:
+    if grouped and all(row["lower"] is not None and row["upper"] is not None for row in frequency):
         cumulative_x = [frequency[0]["lower"]]
         cumulative_y = [0]
         for index, row in enumerate(frequency):
@@ -356,7 +389,7 @@ def chart_payload(
                 cumulative_y.append(row["cumulative_frequency"])
         payload["cumulative_x"] = cumulative_x
         payload["cumulative_y"] = cumulative_y
-    elif any(row["cumulative_frequency"] is not None for row in frequency):
+    elif not grouped and any(row["cumulative_frequency"] is not None for row in frequency):
         payload["cumulative_x"] = [row["value"] for row in frequency]
         payload["cumulative_y"] = [row["cumulative_frequency"] for row in frequency]
 
@@ -449,7 +482,7 @@ def _group_heatmap_payload(frame: pd.DataFrame, selected_column: str, group_colu
     descriptions = describe_columns(frame)
     numeric_columns = [
         item["name"] for item in descriptions
-        if item["inferred_type"].startswith("quantitative_")
+        if item["inferred_type"].startswith("quantitative_") and not item["has_reported_intervals"]
     ]
     if selected_column not in numeric_columns:
         numeric_columns.insert(0, selected_column)
@@ -488,11 +521,13 @@ def sturges_bins(sample_size: int) -> int:
     return max(1, math.ceil(1 + 3.322 * math.log10(max(sample_size, 1))))
 
 
-def _grouped_quantile(rows: list[dict], total: int, quantile: float) -> float:
+def _grouped_quantile(rows: list[dict], total: int, quantile: float) -> float | None:
     target = total * quantile
     previous_cumulative = 0
     for row in rows:
         if row["cumulative_frequency"] >= target:
+            if row["lower"] is None or row["upper"] is None:
+                return None
             width = row["upper"] - row["lower"]
             frequency = row["frequency"]
             if frequency == 0:

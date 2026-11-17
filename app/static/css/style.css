@@ -89,6 +89,7 @@ select, input[type="text"], input[type="number"] {
 }
 select:focus, input:focus { border-color: #8daeed; box-shadow: 0 0 0 3px #edf3ff; }
 .hintline { margin: 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.range-notice { margin: 10px 0; padding: 8px 10px; border-left: 3px solid var(--brand); background: var(--brand-soft); font-size: 11px; }
 .variable-type-hint { padding: 10px 12px; border-left: 3px solid #7395d2; border-radius: 0 8px 8px 0; background: #f5f8fe; color: #516784; overflow-wrap: anywhere; }
 .advanced-settings { margin-top: 8px; color: #627188; font-size: 12px; }
 .advanced-settings summary { display: flex; min-height: 44px; align-items: center; cursor: pointer; font-weight: 650; }

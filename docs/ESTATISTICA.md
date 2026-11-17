@@ -22,6 +22,14 @@ Resulta normalmente de medição e pode assumir qualquer valor dentro de um inte
 
 > Atenção: o formato da célula não determina sozinho o tipo estatístico. Um código numérico de matrícula continua sendo uma variável qualitativa nominal. Por isso o sistema permite revisar a sugestão automática.
 
+### Respostas coletadas em faixas
+
+Perguntas como “quantas horas por dia utiliza o computador?” medem uma variável quantitativa contínua. Quando as alternativas são “Entre 5 a 6 horas”, “Entre 7 a 8 horas” e “+8 horas”, os dados já estão agrupados. Os gráficos de distribuição e as tabelas preservam essas faixas e suas frequências, ordenadas pelos limites, sem criar novos intervalos pelo critério de Sturges.
+
+“+8 horas” é uma classe aberta acima de 8 horas, não uma observação de exatamente 8 horas. Seu limite superior e ponto médio são desconhecidos. Havendo uma classe aberta, a média não é estimada; mediana e quartis só recebem estimativas por interpolação quando a classe em que se encontram tem ambos os limites conhecidos. A moda é apresentada como classe modal.
+
+As respostas por faixa não fornecem observações individuais para pontos, boxplot ou medidas sem classe. As estimativas pelas classes ficam disponíveis em “Medidas com classe”. O gráfico de linha mostra a frequência por faixa. A visualização acumulada usa as próprias faixas como categorias ordenadas no eixo, inclusive quando há uma classe aberta; ela não atribui um limite numérico desconhecido à última classe.
+
 ## 2. Tabela de frequência
 
 Para cada valor ou classe, o sistema calcula:
@@ -127,4 +135,4 @@ No gráfico de pontos, uma segunda variável quantitativa pode ser selecionada. 
 - Células vazias não participam dos cálculos e são contabilizadas separadamente.
 - Ao escolher uma classificação quantitativa, células vazias, valores infinitos e textos que não podem ser convertidos em número são contabilizados como ausentes/excluídos da análise numérica.
 - Nos gráficos de linhas, pontos e boxplot, a resposta é limitada às primeiras 5.000 observações para manter a interface responsiva. Tabelas e medidas usam o conjunto completo aceito pelo servidor.
-- Em intervalos, a última classe inclui o limite superior máximo; as anteriores são fechadas à esquerda e abertas à direita.
+- Nos intervalos gerados automaticamente, a última classe inclui o limite superior máximo; as anteriores são fechadas à esquerda e abertas à direita. Faixas já informadas na pesquisa mantêm seus rótulos e limites conhecidos.

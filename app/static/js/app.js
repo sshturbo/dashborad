@@ -64,7 +64,7 @@ function initialize() {
         "ordinalDialog", "ordinalDialogVariable", "ordinalDialogStatus", "ordinalList", "ordinalReset", "ordinalReverse",
         "ordinalApply", "ordinalCancel", "ordinalClose", "ordinalAnnounce", "ordinalPagination", "ordinalPrevious", "ordinalNext", "ordinalPageLabel",
         "secondaryField", "secondaryColumn", "groupedToggle",
-        "binsField", "binsInput", "inferenceHint", "rowCount", "columnCount", "tpl", "rst", "loading",
+        "binsField", "binsInput", "inferenceHint", "rangeNotice", "rowCount", "columnCount", "tpl", "rst", "loading",
         "kun", "kgr", "tgr", "cfreqTableBody", "cfreqTableTotal", "cfreqTablePercent",
         "groupedVariable", "groupedMethod", "groupedMeasuresNote", "individualMeasuresNote",
         "validCount", "missingCount", "distinctCount", "distinctLabel",
@@ -297,7 +297,7 @@ function populateVariableSelect() {
     const categorical = state.columns.filter((column) => !column.inferred_type.startsWith("quantitative_"));
     const quantitative = state.columns.filter((column) => column.inferred_type.startsWith("quantitative_"));
     if (categorical.length) appendOptionGroup(elements.gf, "Categorias", categorical);
-    if (quantitative.length) appendOptionGroup(elements.gf, "Numéricas (notas e contagens)", quantitative);
+    if (quantitative.length) appendOptionGroup(elements.gf, "Numéricas (contagens, medidas e faixas)", quantitative);
     const selected = state.columns.some((column) => column.name === previous)
         ? previous
         : (categorical[0] || quantitative[0])?.name;
@@ -462,11 +462,17 @@ function updateInferenceHint(column, appliedType) {
     const allowedLabels = allowedTypesForColumn(column).map((type) => variableTypeLabels[type].toLowerCase()).join(" ou ");
 
     elements.inferenceHint.textContent = `Pergunta selecionada: “${column.name}”. Respostas identificadas como ${responseDescription}. Sugestão: ${suggestedLabel}; classificação usada: ${appliedLabel}${manualAdjustment}. Opções compatíveis com os dados desta coluna: ${allowedLabels}.`;
-    if (column.has_reported_intervals) elements.inferenceHint.textContent += " As respostas já informam faixas numéricas; os cálculos usam essas faixas e seus pontos médios.";
+    elements.rangeNotice.hidden = !column.has_reported_intervals;
+    elements.rangeNotice.textContent = column.has_reported_intervals
+        ? "Os gráficos e tabelas preservam as faixas originais da pesquisa. " + (column.has_open_intervals
+            ? "Há faixa aberta, como ‘mais de’: a média não é calculada sem conhecer o limite que falta."
+            : "As medidas por classe são estimativas; não há valores individuais observados.")
+        : "";
+    if (column.has_reported_intervals) elements.inferenceHint.textContent += " " + elements.rangeNotice.textContent;
 }
 
 function populateComparisonColumns(column) {
-    const numeric = state.columns.filter((item) => item.inferred_type.startsWith("quantitative_"));
+    const numeric = state.columns.filter((item) => item.inferred_type.startsWith("quantitative_") && !item.has_reported_intervals);
 
     clearElement(elements.secondaryColumn);
     addOption(elements.secondaryColumn, "", "Valores individuais por resposta", true);
@@ -481,15 +487,15 @@ function syncTypeControls() {
     const activeChart = chartItems[state.activeChart]?.[0];
     const boxIndex = chartItems.findIndex(([key]) => key === "box");
     const boxButton = elements.pk.querySelector(`button[data-i="${boxIndex}"]`);
-    if (boxButton) boxButton.hidden = !quantitative;
+    if (boxButton) boxButton.hidden = !quantitative || reportedIntervals;
     elements.ordinalField.hidden = type !== "qualitative_ordinal";
     if (type === "qualitative_ordinal") renderOrdinalSummary();
-    elements.secondaryField.hidden = activeChart !== "dot" || !quantitative;
+    elements.secondaryField.hidden = activeChart !== "dot" || !quantitative || reportedIntervals;
     const classControls = elements.groupedToggle.closest(".advanced-settings");
     if (classControls) classControls.hidden = !quantitative || reportedIntervals || ["box", "dot"].includes(activeChart);
     const secondaryLabel = elements.secondaryField.querySelector(".lb");
     if (secondaryLabel) secondaryLabel.textContent = "Comparar com outra variável (opcional)";
-    if (!quantitative && state.activeChart === boxIndex) {
+    if ((!quantitative || reportedIntervals) && state.activeChart === boxIndex) {
         pickChart(0);
         return;
     }
@@ -508,7 +514,7 @@ async function runAnalysis() {
     const column = selectedColumn();
     const type = elements.typeSelect.value;
     const quantitative = type.startsWith("quantitative_");
-    const secondaryColumn = quantitative ? (elements.secondaryColumn.value || null) : null;
+    const secondaryColumn = quantitative && !column.has_reported_intervals ? (elements.secondaryColumn.value || null) : null;
     const common = {
         dataset_id: state.datasetId,
         sheet: state.sheet,
@@ -568,18 +574,18 @@ function renderAnalysis() {
         table: true,
         rawtable: true,
         dot: quantitative && Boolean(scatterChartPayload(analysis)?.series_x?.length),
-        line: hasDate || quantitative,
-        ogv: quantitative && Boolean(state.groupedAnalysis?.charts?.cumulative_x?.length),
+        line: analysis.has_reported_intervals || hasDate || (quantitative && Boolean(chartData.series_y?.length)),
+        ogv: quantitative && Boolean(state.groupedAnalysis?.has_reported_intervals || state.groupedAnalysis?.charts?.cumulative_x?.length),
         box: quantitative && Boolean(chartData.box_values?.length),
         su: quantitative && Boolean(analysis.statistics),
         sg: quantitative && Boolean(state.groupedAnalysis?.grouped_statistics),
     };
     const messages = {
-        dot: "Não há valores numéricos suficientes para montar o gráfico de pontos.",
+        dot: analysis.has_reported_intervals ? "As respostas já são faixas; não há valores individuais para o gráfico de pontos." : "Não há valores numéricos suficientes para montar o gráfico de pontos.",
         line: "Sem coluna de data no arquivo. Escolha uma variável numérica para ver os valores por ordem de resposta.",
-        ogv: "A ogiva exige dados numéricos. Escolha uma variável numérica.",
-        box: "O boxplot exige dados numéricos. Selecione uma variável numérica.",
-        su: "Escolha uma variável numérica para ver estas medidas.",
+        ogv: "Escolha uma variável numérica com frequências acumuladas por valor ou faixa.",
+        box: analysis.has_reported_intervals ? "As respostas já são faixas; não há valores individuais para o boxplot." : "O boxplot exige dados numéricos. Selecione uma variável numérica.",
+        su: analysis.statistics_note || "Escolha uma variável numérica para ver estas medidas.",
         sg: "Escolha uma variável numérica para ver as medidas com intervalo de classe.",
     };
     ["dot", "line", "ogv", "box", "su", "sg"].forEach((key) => setAvailability(key, availability[key], messages[key]));
@@ -649,11 +655,19 @@ function syncDistributionTitles(analysis) {
         cd_pie: `Rosca — participação por ${label}`,
         cd_pizza: `Pizza — participação por ${label}`,
         cd_table: `Tabela agrupada — frequência por ${label}`,
+        cd_line: analysis.has_reported_intervals ? "Linha — frequência por faixa" : "Linha — evolução das respostas",
+        cd_ogv: analysis.has_reported_intervals ? "Ogiva — frequência acumulada por faixa" : "Ogiva — frequência acumulada",
     };
     Object.entries(titles).forEach(([cardId, title]) => {
         const heading = document.querySelector(`#${cardId} .chart-head h2`);
         if (heading) heading.textContent = title;
     });
+    document.querySelector("#cd_line .chart-head p").textContent = analysis.has_reported_intervals
+        ? "Compare as frequências nas faixas originais da pesquisa, em ordem."
+        : "Acompanhe a tendência no período ou na ordem de resposta.";
+    document.querySelector("#cd_ogv .chart-head p").textContent = analysis.has_reported_intervals
+        ? "Veja as respostas acumuladas até cada faixa original da pesquisa."
+        : "Veja o crescimento acumulado ao longo dos limites de classe.";
     const tableHeading = document.querySelector("#cd_table thead th");
     if (tableHeading) tableHeading.textContent = grouped ? "Intervalo de classe" : "Categoria";
     document.querySelector("#cd_table table")?.setAttribute(
@@ -689,6 +703,7 @@ function chartContextLabel(key, analysis) {
 
 
 function renderCharts(analysis) {
+    const compactRanges = analysis.has_reported_intervals && window.matchMedia("(max-width: 640px)").matches;
     const frequency = distributionFrequencyRows(analysis);
     const barRows = frequency.map((row) => [row.value, row.frequency]);
     const barLabels = barRows.map((row) => String(row[0]));
@@ -781,40 +796,41 @@ function renderCharts(analysis) {
     }
 
     const dateLabels = analysis.charts.date_x || [];
-    const lineLabels = dateLabels.length
+    const rangeLine = analysis.has_reported_intervals;
+    const lineLabels = rangeLine ? frequency.map((row) => row.value) : dateLabels.length
         ? dateLabels.map((date) => String(date).slice(8, 10) + "/" + String(date).slice(5, 7) + "/" + String(date).slice(2, 4))
         : analysis.charts.series_x.map(String);
-    const lineValues = dateLabels.length ? analysis.charts.date_y : analysis.charts.series_y;
-    const lineXTitle = dateLabels.length ? "Data da resposta" : "Ordem da resposta";
-    const lineYTitle = dateLabels.length ? "Número de respostas por dia" : analysis.column;
-    const lineName = dateLabels.length ? "Respostas por dia" : analysis.column;
+    const lineValues = rangeLine ? frequency.map((row) => row.frequency) : dateLabels.length ? analysis.charts.date_y : analysis.charts.series_y;
+    const lineXTitle = rangeLine ? "Faixas informadas" : dateLabels.length ? "Data da resposta" : "Ordem da resposta";
+    const lineYTitle = rangeLine ? "Frequência (respostas)" : dateLabels.length ? "Número de respostas por dia" : analysis.column;
+    const lineName = rangeLine ? "Respostas por faixa" : dateLabels.length ? "Respostas por dia" : analysis.column;
     makeChart("cline", {
         ...baseChartOption([lineName]),
         tooltip: chartTooltip("axis", "line", (params) => {
             const point = firstChartParam(params);
             return chartTooltipLines(point.axisValueLabel || point.name, [formatNumber(point.value)], [point.seriesName || lineName]);
         }),
-        grid: { left: 52, right: 22, top: 40, bottom: 56, containLabel: true },
+        grid: { left: 52, right: 22, top: 40, bottom: compactRanges ? 86 : 56, containLabel: true },
         xAxis: {
             ...chartCategoryAxis(lineLabels),
-            boundaryGap: false,
+            boundaryGap: rangeLine,
             name: lineXTitle,
             nameLocation: "middle",
-            nameGap: 38,
-            axisLabel: { color: CHART_TEXT, fontSize: 11, rotate: lineLabels.length > 8 ? 25 : 0, hideOverlap: true },
+            nameGap: compactRanges ? 72 : 38,
+            axisLabel: { color: CHART_TEXT, fontSize: 11, rotate: lineLabels.length > 8 ? 25 : 0, hideOverlap: true, ...(rangeLine ? reportedRangeAxisLabels(lineLabels) : {}) },
         },
         yAxis: {
             ...chartValueAxis(),
             name: lineYTitle,
             nameLocation: "middle",
             nameGap: 44,
-            min: dateLabels.length ? 0 : undefined,
+            min: rangeLine || dateLabels.length ? 0 : undefined,
             axisLabel: { color: CHART_TEXT, fontSize: 11, formatter: (value) => formatNumber(value) },
         },
         series: [{
             name: lineName,
             type: "line",
-            smooth: true,
+            smooth: !rangeLine,
             showSymbol: lineLabels.length <= 100,
             symbolSize: 6,
             data: lineValues,
@@ -836,24 +852,28 @@ function renderCharts(analysis) {
 
     if (state.groupedAnalysis) {
         const groupedCharts = state.groupedAnalysis.charts;
-        const ogivePoints = groupedCharts.cumulative_x.map((x, index) => [Number(x), Number(groupedCharts.cumulative_y[index])]);
-        const ogiveName = "Frequência acumulada";
+        const reported = state.groupedAnalysis.has_reported_intervals;
+        const rangeLabels = state.groupedAnalysis.frequency_table.map((row) => row.value);
+        const ogivePoints = reported
+            ? state.groupedAnalysis.frequency_table.map((row) => [row.value, row.cumulative_frequency])
+            : groupedCharts.cumulative_x.map((x, index) => [Number(x), Number(groupedCharts.cumulative_y[index])]);
+        const ogiveName = reported ? "Frequência acumulada por faixa" : "Frequência acumulada";
         makeChart("cogv", {
             ...baseChartOption([ogiveName]),
             tooltip: chartTooltip("axis", "line", (params) => {
                 const point = firstChartParam(params);
                 return chartTooltipLines(ogiveName, [
-                    "Limite da classe: " + formatNumber(point.value[0]),
+                    reported ? "Faixa: " + point.value[0] : "Limite da classe: " + formatNumber(point.value[0]),
                     "Acumulada: " + formatInteger(point.value[1]) + " respostas",
                 ]);
             }),
-            grid: { left: 60, right: 24, top: 40, bottom: 58, containLabel: true },
+            grid: { left: 60, right: 24, top: 40, bottom: compactRanges ? 86 : 58, containLabel: true },
             xAxis: {
-                ...chartValueAxis(),
-                name: "Limite da classe — " + analysis.column,
+                ...(reported ? chartCategoryAxis(rangeLabels) : chartValueAxis()),
+                name: reported ? "Faixas informadas" : "Limite da classe — " + analysis.column,
                 nameLocation: "middle",
-                nameGap: 38,
-                axisLabel: { color: CHART_TEXT, fontSize: 11, formatter: (value) => formatNumber(value) },
+                nameGap: compactRanges ? 72 : 38,
+                axisLabel: reported ? { color: CHART_TEXT, fontSize: 11, ...reportedRangeAxisLabels(rangeLabels) } : { color: CHART_TEXT, fontSize: 11, formatter: (value) => formatNumber(value) },
             },
             yAxis: {
                 ...chartValueAxis(),
@@ -875,19 +895,17 @@ function renderCharts(analysis) {
                 itemStyle: { color: chartPalette[4], borderColor: "#ffffff", borderWidth: 2 },
                 areaStyle: { color: "rgba(139,92,246,0.10)" },
             }],
-            dataZoom: chartDataZoom("cogv", ogivePoints.length, "x", false, []),
+            dataZoom: chartDataZoom("cogv", ogivePoints.length, "x", false, reported ? rangeLabels : []),
         });
     }
 
-    if (quantitative) renderBoxplot(analysis);
+    if (quantitative && analysis.charts.box_values?.length) renderBoxplot(analysis);
     renderKpis(elements.kun, analysis.statistics, false);
     if (state.groupedAnalysis) {
         renderKpis(elements.kgr, state.groupedAnalysis.grouped_statistics, true);
         renderGroupedTable(state.groupedAnalysis);
     }
-    elements.individualMeasuresNote.textContent = selectedColumn()?.has_reported_intervals
-        ? "As respostas já são faixas. Nesta aba, cada resposta é representada pelo ponto médio da faixa; as medidas não são os tempos individuais observados."
-        : "Medidas calculadas sobre os valores individuais.";
+    elements.individualMeasuresNote.textContent = analysis.statistics_note || "Medidas calculadas sobre os valores individuais.";
 }
 
 function renderColumnChart(rows, distributionLabel) {
@@ -895,6 +913,7 @@ function renderColumnChart(rows, distributionLabel) {
     const labels = rows.map((row) => String(row.value));
     const values = rows.map((row) => Number(row.frequency) || 0);
     const seriesName = "Respostas";
+    const compactRanges = state.analysis?.has_reported_intervals && window.matchMedia("(max-width: 640px)").matches;
     const dataZoom = chartDataZoom("ccolumn", labels.length, "x", false, labels);
     makeChart("ccolumn", {
         ...baseChartOption([]),
@@ -902,18 +921,19 @@ function renderColumnChart(rows, distributionLabel) {
             const point = firstChartParam(params);
             return chartTooltipLines(point.axisValueLabel || point.name, [formatInteger(point.value)], [seriesName]);
         }),
-        grid: { left: 64, right: 24, top: 40, bottom: 64, containLabel: true },
+        grid: { left: 64, right: 24, top: 40, bottom: compactRanges ? 86 : 64, containLabel: true },
         xAxis: {
             ...chartCategoryAxis(labels),
             name: distributionLabel,
             nameLocation: "middle",
-            nameGap: 42,
+            nameGap: compactRanges ? 72 : 42,
             axisLabel: {
                 color: CHART_TEXT,
                 fontSize: 11,
                 interval: 0,
                 rotate: labels.length > 6 ? 25 : 0,
                 hideOverlap: true,
+                ...(state.analysis?.has_reported_intervals ? reportedRangeAxisLabels(labels) : {}),
             },
         },
         yAxis: {
@@ -1178,6 +1198,18 @@ function chartCategoryAxis(labels) {
     };
 }
 
+function reportedRangeAxisLabels(labels) {
+    const width = elements.dash.clientWidth || window.innerWidth;
+    return {
+        interval: 0,
+        rotate: 0,
+        hideOverlap: false,
+        width: Math.max(36, Math.min(180, (width - 100) / Math.max(1, labels.length) - 8)),
+        overflow: "break",
+        lineHeight: 14,
+    };
+}
+
 function chartValueAxis() {
     return {
         type: "value",
@@ -1434,7 +1466,7 @@ function renderGroupedTable(analysis) {
     rows.forEach((row) => {
         const tr = body.insertRow();
         const interval = tr.insertCell();
-        if (Number.isFinite(row.lower) && Number.isFinite(row.upper)) {
+        if (!reported && Number.isFinite(row.lower) && Number.isFinite(row.upper)) {
             const bound = (value) => Number(value).toLocaleString("pt-BR", { useGrouping: false, maximumSignificantDigits: 15 });
             interval.textContent = `${bound(row.lower)} – ${bound(row.upper)}`;
         } else interval.textContent = row.value;
@@ -1471,6 +1503,7 @@ function renderDownloads(availability) {
     }, chartId: "cdot", chartIndex: 6 });
     if (availability.line) specs.push({ key: "line", title: "Linha", filename: "linha", rows: () => {
         const values = analysis.charts;
+        if (analysis.has_reported_intervals) return frequencies();
         return values.date_x?.length
             ? makeRows(["Data", "Respostas"], values.date_x.map((date, index) => [date, values.date_y[index]]))
             : makeRows(["Resposta", analysis.column], values.series_x.map((x, index) => [x, values.series_y[index]]));
