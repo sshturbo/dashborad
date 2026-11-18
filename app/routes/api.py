@@ -76,8 +76,17 @@ def report_client_error():
 def upload_dataset():
     uploaded_file = request.files.get("file")
     if uploaded_file is None:
+        current_app.logger.warning(
+            "upload_rejected request_id=%s reason=missing_file_field",
+            getattr(g, "request_id", "-"),
+        )
         return _error("Envie a planilha no campo 'file'.", 400)
 
+    current_app.logger.info(
+        "upload_started request_id=%s request_bytes=%s",
+        getattr(g, "request_id", "-"),
+        request.content_length or 0,
+    )
     path: Path | None = None
     try:
         dataset_id, path, original_name = save_spreadsheet(
@@ -85,21 +94,38 @@ def upload_dataset():
             Path(current_app.config["UPLOAD_FOLDER"]),
             current_app.config["ALLOWED_EXTENSIONS"],
         )
+        file_bytes = path.stat().st_size
+        current_app.logger.info(
+            "upload_received request_id=%s file_bytes=%s extension=%s",
+            getattr(g, "request_id", "-"),
+            file_bytes,
+            path.suffix.lower().lstrip("."),
+        )
         sheets = inspect_workbook(path)
         frame, selected_sheet = load_sheet(path, sheets[0], current_app.config["MAX_DATASET_ROWS"])
+        summary = dataset_summary(frame, selected_sheet)
+        current_app.logger.info(
+            "upload_completed request_id=%s file_bytes=%s sheet_count=%s row_count=%s column_count=%s",
+            getattr(g, "request_id", "-"),
+            file_bytes,
+            len(sheets),
+            len(frame),
+            len(frame.columns),
+        )
         return jsonify(
             {
                 "dataset_id": dataset_id,
                 "file_name": original_name,
                 "sheets": sheets,
-                **dataset_summary(frame, selected_sheet),
+                **summary,
             }
         ), 201
     except (SpreadsheetError, ValueError) as exc:
         current_app.logger.warning(
-            "upload_rejected request_id=%s error_type=%s",
+            "upload_rejected request_id=%s error_type=%s reason=%s",
             getattr(g, "request_id", "-"),
             type(exc).__name__,
+            str(exc)[:240],
         )
         if path and path.exists():
             path.unlink()
@@ -214,8 +240,9 @@ def analyze_dataset():
 def file_too_large(_error_details):
     max_mb = current_app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
     current_app.logger.warning(
-        "upload_too_large request_id=%s max_upload_mb=%s",
+        "upload_too_large request_id=%s request_bytes=%s max_upload_mb=%s",
         getattr(g, "request_id", "-"),
+        request.content_length or 0,
         max_mb,
     )
     return _error(f"O arquivo excede o limite de {max_mb} MB.", 413)
