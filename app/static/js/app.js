@@ -1938,9 +1938,54 @@ async function apiFetch(path, options) {
     } catch (error) {
         if (error.name === "AbortError") throw error;
         if (navigator.onLine === false) {
+            console.error("Falha de rede na requisição da API", {
+                endpoint: path.split("?")[0],
+                method: (options?.method || "GET").toUpperCase(),
+                online: false,
+                cause: error.message,
+            });
             throw new Error("O dispositivo está sem conexão de rede. Reconecte-se e tente novamente.");
         }
-        throw new Error(`Não foi possível conectar ao servidor em ${window.location.origin}. Verifique se o sistema continua em execução. No celular, use o endereço do computador na mesma rede Wi-Fi.`);
+        const hostname = window.location.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+        const localServer = hostname === "localhost" || hostname === "::1" || hostname.endsWith(".local")
+            || /^127\./.test(hostname) || /^10\./.test(hostname) || /^192\.168\./.test(hostname)
+            || /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname) || /^169\.254\./.test(hostname);
+        const healthReachable = localServer ? null : await probeApiHealth();
+        console.error("Falha de rede na requisição da API", {
+            endpoint: path.split("?")[0],
+            method: (options?.method || "GET").toUpperCase(),
+            online: navigator.onLine,
+            healthReachable,
+            cause: error.message,
+        });
+        if (localServer) {
+            throw new Error(`Não foi possível conectar ao servidor em ${window.location.origin}. Verifique se o sistema continua em execução. No celular, use o endereço do computador na mesma rede Wi-Fi.`);
+        }
+        if (healthReachable) {
+            throw new Error(
+                "O servidor está ativo, mas interrompeu esta solicitação antes de responder. "
+                + "Verifique os limites de envio da hospedagem e a rede do celular."
+            );
+        }
+        throw new Error(
+            `Não foi possível conectar à API hospedada em ${window.location.origin}. `
+            + `Teste ${window.location.origin}/api/health no celular e tente novamente em outra rede.`
+        );
+    }
+}
+
+async function probeApiHealth() {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3000);
+    try {
+        const response = await fetch("/api/health", { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return false;
+        const body = await response.json();
+        return body.status === "ok";
+    } catch (_) {
+        return false;
+    } finally {
+        window.clearTimeout(timeout);
     }
 }
 

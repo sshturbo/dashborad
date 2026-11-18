@@ -50,6 +50,7 @@ def upload_dataset():
             }
         ), 201
     except (SpreadsheetError, ValueError) as exc:
+        current_app.logger.warning("Upload de planilha rejeitado: %s", exc)
         if path and path.exists():
             path.unlink()
         return _error(str(exc), 400)
@@ -147,6 +148,7 @@ def analyze_dataset():
 @api_bp.app_errorhandler(RequestEntityTooLarge)
 def file_too_large(_error_details):
     max_mb = current_app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+    current_app.logger.warning("Upload de planilha excedeu o limite configurado de %s MB.", max_mb)
     return _error(f"O arquivo excede o limite de {max_mb} MB.", 413)
 
 
