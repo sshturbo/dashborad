@@ -50,6 +50,10 @@ Conecte o celular e o computador à mesma rede Wi-Fi e abra `http://IP-DO-COMPUT
 
 Na tela de importação, toque na área de seleção e escolha um arquivo Excel ou CSV baixado no aparelho. Documentos do Google Planilhas devem ser exportados para um desses formatos antes do envio.
 
+Se a página abrir, mas o envio falhar por conexão, abra `http://IP-DO-COMPUTADOR:5000/api/health`. A resposta esperada é `{"status":"ok"}`. Sem essa resposta, verifique se o servidor Python continua em execução, o endereço, a rede Wi-Fi e a permissão do firewall. Deixe o servidor aberto enquanto usa o dashboard; abrir apenas o HTML ou uma hospedagem de arquivos estáticos não executa a API.
+
+O navegador verifica o limite de tamanho antes do envio e o servidor mantém sua própria validação. No servidor de desenvolvimento do Flask, um envio acima do limite pode causar uma conexão interrompida em vez de uma resposta HTTP 413; veja a [documentação de uploads do Flask](https://flask.palletsprojects.com/en/stable/patterns/fileuploads/).
+
 Para gerar uma planilha de demonstração:
 
 ```bash

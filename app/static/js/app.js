@@ -207,6 +207,14 @@ async function uploadFile(file) {
     if (!file) return;
     if (!/\.(xls|xlsx|xlsm|csv)$/i.test(file.name)) {
         setUploadStatus("Formato inválido. Selecione um arquivo .xls, .xlsx, .xlsm ou .csv.", true);
+        elements.file.value = "";
+        return;
+    }
+    const uploadLimit = Number(elements.file.dataset.maxUploadBytes);
+    // O servidor ainda valida o tamanho completo do formulário multipart.
+    if (uploadLimit > 0 && file.size >= uploadLimit) {
+        setUploadStatus(`O arquivo é maior que o limite de envio de ${formatBytes(uploadLimit)}. Selecione uma planilha menor.`, true);
+        elements.file.value = "";
         return;
     }
 
@@ -216,7 +224,7 @@ async function uploadFile(file) {
     setLoading(true);
     setUploadStatus("Enviando e lendo a planilha pela aplicação Python…");
     try {
-        const response = await fetch("/api/datasets", { method: "POST", body });
+        const response = await apiFetch("/api/datasets", { method: "POST", body });
         const data = await parseResponse(response);
         state.datasetId = data.dataset_id;
         state.fileName = file.name;
@@ -254,7 +262,7 @@ async function loadSheet(sheet) {
     const request = ++state.requestId;
     setLoading(true);
     try {
-        const response = await fetch(`/api/datasets/${state.datasetId}?sheet=${encodeURIComponent(sheet)}`);
+        const response = await apiFetch(`/api/datasets/${state.datasetId}?sheet=${encodeURIComponent(sheet)}`);
         const data = await parseResponse(response);
         if (request !== state.requestId) return;
         state.sheet = data.sheet;
@@ -547,7 +555,7 @@ async function runAnalysis() {
 }
 
 async function requestAnalysis(payload) {
-    const response = await fetch("/api/analysis", {
+    const response = await apiFetch("/api/analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -1062,7 +1070,7 @@ async function loadTablePage(page = 0) {
     elements.tableNext.disabled = true;
     try {
         const query = new URLSearchParams({ sheet: sheet || "", offset: String(offset), limit: String(pageSize) });
-        const data = await parseResponse(await fetch(`/api/datasets/${datasetId}/rows?${query}`));
+        const data = await parseResponse(await apiFetch(`/api/datasets/${datasetId}/rows?${query}`));
         if (requestId !== state.tableRequestId || datasetId !== state.datasetId || sheet !== state.sheet) return;
         state.tablePage = Math.floor(data.offset / pageSize);
         state.tablePageSize = pageSize;
@@ -1668,7 +1676,7 @@ async function downloadFullDatasetCsv(spec) {
     const rows = [];
     do {
         const query = new URLSearchParams({ sheet: sheet || "", offset: String(offset), limit: String(pageSize) });
-        const data = await parseResponse(await fetch(`/api/datasets/${datasetId}/rows?${query}`));
+        const data = await parseResponse(await apiFetch(`/api/datasets/${datasetId}/rows?${query}`));
         if (datasetId !== state.datasetId) return;
         columns = data.columns || columns;
         rowCount = data.row_count || 0;
@@ -1814,13 +1822,35 @@ async function removeDataset() {
 }
 
 async function deleteDatasetOnServer(datasetId) {
-    try { await fetch(`/api/datasets/${datasetId}`, { method: "DELETE" }); } catch (_) { /* a tela ainda pode ser limpa */ }
+    try { await apiFetch(`/api/datasets/${datasetId}`, { method: "DELETE" }); } catch (_) { /* a tela ainda pode ser limpa */ }
+}
+
+async function apiFetch(path, options) {
+    if (!["http:", "https:"].includes(window.location.protocol)) {
+        throw new Error("Abra o sistema pelo endereço do servidor Python, começando com http:// ou https://. Abrir o arquivo HTML diretamente não permite enviar a planilha.");
+    }
+    try {
+        return await fetch(path, options);
+    } catch (error) {
+        if (error.name === "AbortError") throw error;
+        if (navigator.onLine === false) {
+            throw new Error("O dispositivo está sem conexão de rede. Reconecte-se e tente novamente.");
+        }
+        throw new Error(`Não foi possível conectar ao servidor em ${window.location.origin}. Verifique se o sistema continua em execução. No celular, use o endereço do computador na mesma rede Wi-Fi.`);
+    }
 }
 
 async function parseResponse(response) {
     let data;
-    try { data = await response.json(); } catch (_) { data = {}; }
-    if (!response.ok) throw new Error(data.error || "Não foi possível concluir a operação.");
+    try {
+        data = await response.json();
+    } catch (_) {
+        if (response.status === 413) throw new Error("O arquivo excede o limite de envio do servidor. Selecione uma planilha menor.");
+        if ([502, 503, 504].includes(response.status)) throw new Error("O servidor de processamento está indisponível ou demorou para responder. Tente novamente em alguns instantes.");
+        throw new Error(`O servidor não retornou os dados esperados (HTTP ${response.status}). Abra a aplicação pelo servidor Python; uma página HTML hospedada sozinha não processa planilhas.`);
+    }
+    if (!response.ok) throw new Error(data?.error || `Não foi possível concluir a operação (HTTP ${response.status}).`);
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("O servidor retornou uma resposta inválida. Recarregue a aplicação pelo endereço do servidor Python.");
     return data;
 }
 

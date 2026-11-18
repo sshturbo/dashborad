@@ -9,7 +9,7 @@
     <script src="{{ url_for('static', filename='js/waves.js', v='realistic-solar-2026-11-14') }}" defer></script>
     <script src="{{ url_for('static', filename='js/solar-system.js', v='realistic-solar-2026-11-14') }}" defer></script>
     <script src="{{ url_for('static', filename='vendor/echarts/echarts.min.js', v='6.0.0') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='reported-ranges-2026-11-17') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='connection-errors-2026-11-17') }}" defer></script>
 </head>
 <body data-view="landing">
     <canvas id="waveBackground" class="wave-background" data-assets="{{ url_for('static', filename='img/waves/') }}" aria-hidden="true"></canvas>
@@ -179,8 +179,8 @@
                     <div class="section-heading"><span class="step-number">01</span><div><h2>Importe sua planilha</h2><p>Após o envio, a configuração e os gráficos aparecem no dashboard.</p></div></div>
             <label class="drop" id="drop" for="file">
                 <span class="upload-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></svg></span><b id="uploadLabel">Toque ou clique para selecionar sua planilha</b><span>Você também pode arrastar o arquivo até aqui</span>
-                <small id="uploadFormats">Excel (.xlsx, .xlsm, .xls) ou CSV (.csv)</small>
-                <input type="file" id="file" name="file" aria-labelledby="uploadLabel" aria-describedby="uploadFormats" accept=".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.ms-excel,text/csv,application/csv,text/comma-separated-values">
+                <small id="uploadFormats">Excel (.xlsx, .xlsm, .xls) ou CSV (.csv) · envio até {{ (config['MAX_CONTENT_LENGTH'] / (1024 * 1024)) | round(2) }} MB</small>
+                <input type="file" id="file" name="file" data-max-upload-bytes="{{ config['MAX_CONTENT_LENGTH'] }}" aria-labelledby="uploadLabel" aria-describedby="uploadFormats" accept=".xlsx,.xlsm,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.ms-excel,text/csv,application/csv,text/comma-separated-values">
             </label>
             <div class="na" id="ust" role="status" aria-live="polite">Nenhum arquivo carregado.</div>
 
