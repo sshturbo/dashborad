@@ -1933,19 +1933,42 @@ async function apiFetch(path, options) {
     if (!["http:", "https:"].includes(window.location.protocol)) {
         throw new Error("Abra o sistema pelo endereço do servidor Python, começando com http:// ou https://. Abrir o arquivo HTML diretamente não permite enviar a planilha.");
     }
+    const attemptId = window.crypto?.randomUUID?.()
+        || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const method = (options?.method || "GET").toUpperCase();
+    const headers = new Headers(options?.headers || {});
+    headers.set("X-Client-Attempt-ID", attemptId);
+    const uploadFile = typeof FormData !== "undefined" && options?.body instanceof FormData
+        ? options.body.get("file")
+        : null;
+    const uploadDetails = uploadFile instanceof File
+        ? {
+            upload_bytes: uploadFile.size,
+            upload_mime: (uploadFile.type || "unknown").slice(0, 100),
+            upload_extension: (uploadFile.name.match(/\.([a-z0-9]{1,10})$/i)?.[1] || "unknown").toLowerCase(),
+        }
+        : { upload_bytes: null, upload_mime: "none", upload_extension: "none" };
+    const userAgent = navigator.userAgent;
+    const browser = /SamsungBrowser/i.test(userAgent) ? "samsung_internet"
+        : /Edg/i.test(userAgent) ? "edge"
+            : /Chrome|CriOS/i.test(userAgent) ? "chrome"
+                : /Firefox|FxiOS/i.test(userAgent) ? "firefox"
+                    : /Safari/i.test(userAgent) ? "safari" : "other";
+    const platform = /Android/i.test(userAgent) ? "android"
+        : /iPhone|iPad|iPod/i.test(userAgent) ? "ios" : "desktop";
     try {
-        return await fetch(path, options);
+        return await fetch(path, { ...options, headers });
     } catch (error) {
         if (error.name === "AbortError") throw error;
-        const attemptId = window.crypto?.randomUUID?.()
-            || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const endpoint = path.split("?")[0];
-        const method = (options?.method || "GET").toUpperCase();
         const online = navigator.onLine !== false;
-        const mobile = window.matchMedia("(pointer: coarse)").matches;
+        const mobile = platform !== "desktop" || window.matchMedia("(pointer: coarse)").matches;
         if (navigator.onLine === false) {
             console.error("Falha de rede na requisição da API", { attemptId, endpoint, method, online, mobile, cause: error.message });
-            void reportClientFailure({ attempt_id: attemptId, endpoint, method, online, health_reachable: false, mobile, error_name: error.name });
+            void reportClientFailure({
+                attempt_id: attemptId, endpoint, method, online, health_reachable: false, mobile,
+                browser, platform, error_name: error.name, ...uploadDetails,
+            });
             throw new Error("O dispositivo está sem conexão de rede. Reconecte-se e tente novamente.");
         }
         const hostname = window.location.hostname.replace(/^\[|\]$/g, "").toLowerCase();
@@ -1960,7 +1983,10 @@ async function apiFetch(path, options) {
             online,
             health_reachable: healthReachable,
             mobile,
+            browser,
+            platform,
             error_name: error.name,
+            ...uploadDetails,
         };
         console.error("Falha de rede na requisição da API", { ...clientLog, cause: error.message });
         const serverRequestId = await reportClientFailure(clientLog);
@@ -1987,7 +2013,7 @@ async function reportClientFailure(details) {
     try {
         const response = await fetch("/api/client-errors", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "X-Client-Attempt-ID": details.attempt_id },
             body: JSON.stringify({ event: "api_fetch_failed", ...details }),
             keepalive: true,
             signal: controller.signal,

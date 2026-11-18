@@ -27,6 +27,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     def begin_request_logging():
         supplied_id = request.headers.get("X-Request-ID", "")
         g.request_id = supplied_id if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", supplied_id) else uuid.uuid4().hex
+        supplied_attempt_id = request.headers.get("X-Client-Attempt-ID", "")
+        g.client_attempt_id = (
+            supplied_attempt_id if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", supplied_attempt_id) else "-"
+        )
         g.request_started_at = time.perf_counter()
 
     @app.after_request
@@ -36,10 +40,19 @@ def create_app(test_config: dict | None = None) -> Flask:
         if not request.path.startswith("/static/"):
             elapsed_ms = round((time.perf_counter() - getattr(g, "request_started_at", time.perf_counter())) * 1000, 1)
             message = (
-                "http_request request_id=%s method=%s path=%s status=%s duration_ms=%s content_length=%s"
+                "http_request request_id=%s client_attempt_id=%s method=%s path=%s status=%s duration_ms=%s content_length=%s"
             )
             log = app.logger.warning if response.status_code >= 400 else app.logger.info
-            log(message, request_id, request.method, request.path, response.status_code, elapsed_ms, request.content_length or 0)
+            log(
+                message,
+                request_id,
+                getattr(g, "client_attempt_id", "-"),
+                request.method,
+                request.path,
+                response.status_code,
+                elapsed_ms,
+                request.content_length or 0,
+            )
         return response
 
     @app.teardown_request

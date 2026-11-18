@@ -43,6 +43,11 @@ def report_client_error():
     online = payload.get("online")
     health_reachable = payload.get("health_reachable")
     mobile = payload.get("mobile")
+    browser = payload.get("browser")
+    platform = payload.get("platform")
+    upload_bytes = payload.get("upload_bytes")
+    upload_mime = payload.get("upload_mime")
+    upload_extension = payload.get("upload_extension")
     if (
         not isinstance(endpoint, str)
         or not re.fullmatch(r"/api/[A-Za-z0-9_./-]{1,180}", endpoint)
@@ -55,11 +60,18 @@ def report_client_error():
         or not isinstance(online, bool)
         or health_reachable not in (True, False, None)
         or not isinstance(mobile, bool)
+        or browser not in {"chrome", "samsung_internet", "edge", "firefox", "safari", "other"}
+        or platform not in {"android", "ios", "desktop"}
+        or (upload_bytes is not None and (type(upload_bytes) is not int or upload_bytes < 0))
+        or not isinstance(upload_mime, str)
+        or not re.fullmatch(r"[A-Za-z0-9.+/-]{1,100}", upload_mime)
+        or not isinstance(upload_extension, str)
+        or not re.fullmatch(r"(?:none|unknown|[a-z0-9]{1,10})", upload_extension)
     ):
         return _error("O diagnóstico enviado é inválido.", 400)
 
     current_app.logger.warning(
-        "client_api_failure request_id=%s attempt_id=%s endpoint=%s method=%s online=%s health_reachable=%s mobile=%s error_name=%s",
+        "client_api_failure request_id=%s attempt_id=%s endpoint=%s method=%s online=%s health_reachable=%s mobile=%s platform=%s browser=%s upload_bytes=%s upload_mime=%s upload_extension=%s error_name=%s",
         getattr(g, "request_id", "-"),
         attempt_id,
         endpoint,
@@ -67,6 +79,11 @@ def report_client_error():
         online,
         health_reachable,
         mobile,
+        platform,
+        browser,
+        upload_bytes,
+        upload_mime,
+        upload_extension,
         error_name,
     )
     return jsonify({"logged": True, "request_id": getattr(g, "request_id", "-")}), 202
