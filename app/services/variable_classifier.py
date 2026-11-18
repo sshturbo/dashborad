@@ -52,7 +52,36 @@ PERSONAL_DATA_TERMS = (
     "nome do funcionario",
 )
 DATE_COLUMN_PATTERN = re.compile(r"timestamp|carimbo|\bdata\b|\bdate\b", flags=re.IGNORECASE)
+IDENTIFIER_COLUMN_PATTERN = re.compile(
+    r"\b(?:id|codigo|matricula|registro|protocolo|cpf|cnpj|cep|telefone|celular|documento|inscricao|chave)\b|"
+    r"\bnota\s+fiscal\b|\bnumero\s+(?:do|da)\s+(?:chamado|pedido|protocolo|documento)\b",
+    flags=re.IGNORECASE,
+)
+QUANTITATIVE_COLUMN_PATTERN = re.compile(
+    r"\b(?:quantos?|quantas?|quantidade|numero\s+de|total\s+de|how\s+many|how\s+much|"
+    r"horas?|minutos?|segundos?|dias?|meses?|anos?|idade|tempo|duracao|altura|peso|massa|"
+    r"distancia|velocidade|valor|renda|salario|percentual|porcentagem|metros?|quilometros?|"
+    r"litros?|consumo|volume|temperatura|comprimento|largura|profundidade|quilometragem)\b",
+    flags=re.IGNORECASE,
+)
+NOMINAL_CODE_COLUMN_PATTERN = re.compile(
+    r"^(?:(?:qual|informe|selecione|indique)\s+(?:(?:e|o|a|seu|sua)\s+)*)?"
+    r"(?:status|categoria|tipo|turno|departamento|setor|modalidade|regime|sexo|cor|grupo|"
+    r"estado\s+civil|genero|nacionalidade|idioma|filial|regiao|sede|cargo|forma\s+de\s+pagamento|meio\s+de\s+pagamento)\b",
+    flags=re.IGNORECASE,
+)
+NUMERIC_BINARY_QUESTION_PATTERN = re.compile(
+    r"\b(?:possui|tem|recebeu|recebe|utiliza|usa|trabalha|participa|concluiu|acessa|aprovado|presente)\b",
+    flags=re.IGNORECASE,
+)
 _INTERVAL_NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+_INDIVIDUAL_NUMBER_PATTERN = re.compile(
+    rf"({_INTERVAL_NUMBER})\s*(?:%|h|hs|min|s|ms|mm|cm|m|km|g|kg|ml|l|mbps|mpbs|gbps|"
+    r"horas?|minutos?|segundos?|dias?|mes(?:es)?|anos?|metros?|quilometros?|litros?|graus?|"
+    r"vez(?:es)?|computador(?:es)?|impressoras?|sistemas?|dispositivos?|problemas?|chamados?|"
+    r"pessoas?|funcionarios?|colaborador(?:es)?|unidades?|reais|pontos?)?",
+    flags=re.IGNORECASE,
+)
 _TEXT_INTERVAL_PATTERN = re.compile(
     rf"\s*(?:(?:entre|de)\s+)?({_INTERVAL_NUMBER})\s*(?:até|a|[-–—])\s*"
     rf"({_INTERVAL_NUMBER})(?:\s+[a-zA-ZÀ-ÿ%].*)?\s*",
@@ -124,6 +153,48 @@ def _recognized_ordinal_order(labels: list[str]) -> list[str] | None:
     return None
 
 
+def _ordered_numeric_labels(series: pd.Series) -> list[str] | None:
+    """Order small integer answer codes without assuming they measure quantity."""
+    clean = series.dropna()
+    clean = clean[clean.astype(str).str.strip() != ""]
+    if clean.empty:
+        return None
+
+    coded: list[tuple[float, str]] = []
+    for value in clean:
+        number = extract_individual_number(value)
+        if number is None or not math.isclose(number, round(number), abs_tol=1e-9) or not 0 <= number <= 10:
+            return None
+        coded.append((number, str(value).strip()))
+    return list(dict.fromkeys(label for _number, label in sorted(coded, key=lambda item: item[0])))
+
+
+def _contextual_numeric_classification(series: pd.Series, column_name: object) -> tuple[str, list[str] | None, str] | None:
+    """Use an explicit question/column meaning to interpret numeric answer codes."""
+    if column_name is None:
+        return None
+    normalized = re.sub(r"^\d+[.)-]\s*", "", _normalize(column_name))
+
+    if IDENTIFIER_COLUMN_PATTERN.search(normalized):
+        return "qualitative_nominal", None, "O cabeçalho indica um código ou identificador; os números são categorias, não medidas."
+
+    if QUANTITATIVE_COLUMN_PATTERN.search(normalized):
+        return None
+
+    ordered_labels = _ordered_numeric_labels(series)
+    if ordered_labels is None:
+        return None
+
+    if NOMINAL_CODE_COLUMN_PATTERN.search(normalized):
+        return "qualitative_nominal", None, "O cabeçalho indica categorias codificadas por números."
+
+    numeric_values = [extract_individual_number(value) for value in series.dropna() if str(value).strip()]
+    if set(numeric_values).issubset({0, 1}) and NUMERIC_BINARY_QUESTION_PATTERN.search(normalized):
+        return "qualitative_nominal", None, "A pergunta é binária e os números representam códigos de resposta."
+
+    return None
+
+
 def resolve_ordinal_order(
     series: pd.Series,
     requested_order: object = None,
@@ -163,6 +234,14 @@ def resolve_ordinal_order(
             )
         requested_set = set(requested)
         return requested + [value for value in labels if value not in requested_set], "custom"
+
+    classes = reported_interval_classes(series)
+    if classes is not None:
+        return [label for item in classes for label in item["source_labels"]], "recognized"
+
+    numeric_order = _ordered_numeric_labels(series)
+    if numeric_order is not None:
+        return numeric_order, "recognized"
 
     recognized = _recognized_ordinal_order(labels)
     if recognized is not None:
@@ -220,6 +299,22 @@ def extract_number(value: object) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def extract_individual_number(value: object) -> float | None:
+    """Accept an individual value, optionally with a unit, without mining labels."""
+    if pd.isna(value) or isinstance(value, (bool, np.bool_)):
+        return None
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        number = float(value)
+        return number if math.isfinite(number) else None
+    if parse_numeric_interval(value) is not None:
+        return None
+    match = _INDIVIDUAL_NUMBER_PATTERN.fullmatch(_normalize(value).replace(",", ".").replace("−", "-"))
+    if match is None:
+        return None
+    number = float(match.group(1))
+    return number if math.isfinite(number) else None
 
 
 def parse_numeric_interval(value: object) -> tuple[float | None, float | None] | None:
@@ -314,8 +409,8 @@ def has_reported_intervals(series: pd.Series) -> bool:
     return reported_interval_classes(series) is not None
 
 
-def infer_variable_type(series: pd.Series) -> tuple[str, list[str] | None]:
-    """Recognize reported ranges, then apply the 80% individual numeric rule."""
+def infer_variable_type(series: pd.Series, column_name: object = None) -> tuple[str, list[str] | None]:
+    """Separate observed numeric values from textual categories and range labels."""
     clean = series.dropna()
     clean = clean[clean.astype(str).str.strip() != ""]
     if clean.empty:
@@ -324,10 +419,20 @@ def infer_variable_type(series: pd.Series) -> tuple[str, list[str] | None]:
     if pd.api.types.is_bool_dtype(clean):
         return "qualitative_nominal", None
 
-    if has_reported_intervals(clean):
-        return "quantitative_continuous", None
+    classes = reported_interval_classes(clean)
+    if classes is not None:
+        return "qualitative_ordinal", [label for item in classes for label in item["source_labels"]]
 
-    extracted = [extract_number(value) for value in clean]
+    # Mixed or overlapping ranges remain categories too; never infer quantities
+    # by replacing a respondent's selected range with a fabricated midpoint.
+    if any(parse_numeric_interval(value) is not None for value in clean):
+        return "qualitative_nominal", None
+
+    contextual = _contextual_numeric_classification(clean, column_name)
+    if contextual is not None:
+        return contextual[0], contextual[1]
+
+    extracted = [extract_individual_number(value) for value in clean]
     numeric_values = [value for value in extracted if value is not None]
     numeric_ratio = len(numeric_values) / len(clean)
 
@@ -343,12 +448,55 @@ def infer_variable_type(series: pd.Series) -> tuple[str, list[str] | None]:
     return "qualitative_nominal", None
 
 
-def allowed_variable_types(series: pd.Series) -> list[str]:
-    """Return classifications from the same numeric/text rule used by inference."""
-    inferred_type, _ = infer_variable_type(series)
+def allowed_variable_types(series: pd.Series, column_name: object = None) -> list[str]:
+    """Return the default analysis family for the observed response format."""
+    inferred_type, _ = infer_variable_type(series, column_name)
     if inferred_type.startswith("quantitative_"):
         return ["quantitative_discrete", "quantitative_continuous"]
     return ["qualitative_nominal", "qualitative_ordinal"]
+
+
+def classification_options(series: pd.Series, column_name: object = None) -> list[str]:
+    """Offer a deliberate override for numeric columns whose meaning is ambiguous."""
+    if has_reported_intervals(series):
+        return ["qualitative_nominal", "qualitative_ordinal", "quantitative_continuous"]
+
+    normalized_name = _normalize(column_name) if column_name is not None else ""
+    if IDENTIFIER_COLUMN_PATTERN.search(normalized_name) or QUANTITATIVE_COLUMN_PATTERN.search(normalized_name):
+        return allowed_variable_types(series, column_name)
+
+    contextual = _contextual_numeric_classification(series, column_name)
+    if contextual is not None:
+        return allowed_variable_types(series, column_name)
+
+    clean = series.dropna()
+    clean = clean[clean.astype(str).str.strip() != ""]
+    if clean.empty or pd.api.types.is_bool_dtype(clean):
+        return allowed_variable_types(series, column_name)
+    if any(parse_numeric_interval(value) is not None for value in clean):
+        return allowed_variable_types(series, column_name)
+    extracted = [extract_individual_number(value) for value in clean]
+    if len([value for value in extracted if value is not None]) / len(clean) >= 0.80:
+        return [
+            "qualitative_nominal",
+            "qualitative_ordinal",
+            "quantitative_discrete",
+            "quantitative_continuous",
+        ]
+    return allowed_variable_types(series, column_name)
+
+
+def _inference_reason(series: pd.Series, column_name: object, inferred_type: str) -> str:
+    if has_reported_intervals(series):
+        return "As respostas são categorias em faixas, ordenadas pelos limites; os rótulos originais são preservados."
+    contextual = _contextual_numeric_classification(series, column_name)
+    if contextual is not None and contextual[0] == inferred_type:
+        return contextual[2]
+    if inferred_type.startswith("quantitative_"):
+        return "As respostas contêm valores numéricos individuais, inclusive notas de avaliação."
+    if inferred_type == "qualitative_ordinal":
+        return "As respostas são categorias com uma ordem reconhecível."
+    return "As respostas são categorias; não há uma escala numérica confiável identificada."
 
 
 def describe_columns(frame: pd.DataFrame) -> list[dict]:
@@ -362,14 +510,16 @@ def describe_columns(frame: pd.DataFrame) -> list[dict]:
         if clean.empty:
             continue
 
-        inferred_type, inferred_order = infer_variable_type(series)
+        inferred_type, inferred_order = infer_variable_type(series, name)
         interval_classes = reported_interval_classes(series)
         examples = [_json_scalar(value) for value in clean.unique()[:4]]
         descriptions.append(
             {
                 "name": str(name),
                 "inferred_type": inferred_type,
-                "allowed_types": allowed_variable_types(series),
+                "allowed_types": allowed_variable_types(series, name),
+                "classification_options": classification_options(series, name),
+                "inference_reason": _inference_reason(series, name, inferred_type),
                 "type_label": TYPE_LABELS[inferred_type],
                 "inferred_order": inferred_order,
                 "has_reported_intervals": interval_classes is not None,

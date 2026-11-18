@@ -28,6 +28,20 @@ O projeto usa **Python/Flask e Pandas** no backend e **HTML, CSS, JavaScript e A
 
 Pré-requisito: Python 3.11 ou mais recente.
 
+No Windows, abra o PowerShell na pasta do projeto e execute:
+
+```powershell
+py -3 -m venv --clear .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+python run.py
+```
+
+O argumento `--clear` evita misturar arquivos binários de pacotes quando a pasta `.venv` já foi criada com outra versão do Python.
+
+No macOS ou Linux, use:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate

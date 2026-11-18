@@ -167,7 +167,9 @@ def test_hour_survey_ranges_preserve_labels_order_and_open_class():
     series = pd.Series(["Entre 5 a 6 horas", "+8 horas", "Entre 7 a 8 horas", "+8 horas"])
     classes = reported_interval_classes(series)
 
-    assert infer_variable_type(series) == ("quantitative_continuous", None)
+    assert infer_variable_type(series) == (
+        "qualitative_ordinal", ["Entre 5 a 6 horas", "Entre 7 a 8 horas", "+8 horas"]
+    )
     assert [row["value"] for row in classes] == [
         "Entre 5 a 6 horas", "Entre 7 a 8 horas", "+8 horas"
     ]
@@ -182,7 +184,7 @@ def test_hour_survey_ranges_preserve_labels_order_and_open_class():
     description = describe_columns(pd.DataFrame({"Horas": series}))[0]
     assert description["has_reported_intervals"] is True
     assert description["has_open_intervals"] is True
-    assert description["inferred_type"] == "quantitative_continuous"
+    assert description["inferred_type"] == "qualitative_ordinal"
 
 
 def test_all_open_classes_combine_equivalent_labels_and_ignore_blank_responses():
@@ -197,7 +199,7 @@ def test_all_open_classes_combine_equivalent_labels_and_ignore_blank_responses()
     ]
     assert classes[-1]["source_labels"] == [">8 horas", "+8 horas"]
     description = describe_columns(pd.DataFrame({"Horas": series}))[0]
-    assert description["inferred_type"] == "quantitative_continuous"
+    assert description["inferred_type"] == "qualitative_ordinal"
     assert description["missing_count"] == 3
 
 
@@ -210,12 +212,12 @@ def test_empty_responses_do_not_create_an_open_class():
     assert describe_columns(pd.DataFrame({"Horas": series})) == []
 
 
-def test_closed_ranges_are_continuous_even_with_integer_midpoints():
+def test_closed_ranges_are_ordinal_categories_even_with_integer_midpoints():
     from app.services.variable_classifier import extract_number
 
     series = pd.Series(["1 a 3 horas", "4 a 6 horas"])
     assert [extract_number(value) for value in series] == [2.0, 5.0]
-    assert infer_variable_type(series) == ("quantitative_continuous", None)
+    assert infer_variable_type(series) == ("qualitative_ordinal", ["1 a 3 horas", "4 a 6 horas"])
 
 
 @pytest.mark.parametrize(
@@ -265,3 +267,57 @@ def test_column_descriptions_include_allowed_classifications():
     by_name = {item["name"]: item for item in descriptions}
     assert by_name["Resposta"]["allowed_types"] == ["qualitative_nominal", "qualitative_ordinal"]
     assert by_name["Nota"]["allowed_types"] == ["quantitative_discrete", "quantitative_continuous"]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "8. Como você avalia a qualidade do suporte prestado pelo setor de TI?",
+        "13. Como você avalia a velocidade do atendimento dos chamados de TI?",
+        "16. Qual é o seu nível de satisfação com os equipamentos fornecidos pela empresa?",
+        "18. Como você classifica a qualidade da internet utilizada no seu setor?",
+        "Em uma escala de 1 a 5, como você avalia o atendimento?",
+    ],
+)
+def test_numeric_ratings_remain_quantitative_regardless_of_question_wording(question):
+    descriptions = describe_columns(pd.DataFrame({question: [5, 4, 5, 4]}))
+    assert descriptions[0]["inferred_type"] == "quantitative_discrete"
+    assert descriptions[0]["allowed_types"] == ["quantitative_discrete", "quantitative_continuous"]
+
+
+def test_internet_speed_ranges_are_ordered_categories_with_an_explicit_grouped_option():
+    from app.services.variable_classifier import classification_options
+
+    question = "29. Qual é aproximadamente a velocidade da internet disponível no seu computador, em Mbps?"
+    values = pd.Series(["Entre 121 a 180 mpbs", "Entre 61 a 120 mpbs", "Entre 121 a 180 mpbs"])
+    assert infer_variable_type(values, question) == (
+        "qualitative_ordinal", ["Entre 61 a 120 mpbs", "Entre 121 a 180 mpbs"]
+    )
+    assert allowed_variable_types(values, question) == ["qualitative_nominal", "qualitative_ordinal"]
+    assert classification_options(values, question) == [
+        "qualitative_nominal", "qualitative_ordinal", "quantitative_continuous"
+    ]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["Windows 10", "Windows 11"],
+        ["1 - Ruim", "5 - Ótimo"],
+        ["Entre 1 a 5 chamados"] * 9 + ["Nenhum chamado"],
+        ["1 a 20", "15 a 30"],
+    ],
+)
+def test_numbers_inside_text_or_ambiguous_ranges_do_not_make_answers_quantitative(values):
+    assert infer_variable_type(pd.Series(values))[0] == "qualitative_nominal"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("4", 4), ("4,5", 4.5), ("2 anos", 2), ("1 computador", 1), ("Windows 11", None),
+     ("5 - Ótimo", None), ("Entre 61 a 120 mpbs", None), ("+8 horas", None), (True, None)],
+)
+def test_individual_number_extraction_does_not_fabricate_values_from_categories(value, expected):
+    from app.services.variable_classifier import extract_individual_number
+
+    assert extract_individual_number(value) == expected

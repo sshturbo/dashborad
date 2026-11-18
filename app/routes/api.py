@@ -135,6 +135,7 @@ def analyze_dataset():
             ordinal_order=payload.get("ordinal_order"),
             secondary_column=payload.get("secondary_column"),
             group_column=payload.get("group_column"),
+            allow_type_override=bool(payload.get("allow_type_override", False)),
         )
         return jsonify({"sheet": selected_sheet, **result})
     except DatasetNotFoundError as exc:

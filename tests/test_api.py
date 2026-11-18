@@ -128,6 +128,7 @@ def test_reported_interval_detection_and_grouping_metadata_are_exposed_by_api(cl
             "sheet": metadata["sheet"],
             "column": "Tempo TI",
             "variable_type": "quantitative_continuous",
+            "allow_type_override": True,
             "grouped": True,
             "bins": 3,
         },
@@ -152,7 +153,7 @@ def test_api_preserves_reported_open_hour_classes_and_exposes_only_grouped_estim
     assert upload.status_code == 201
     metadata = upload.get_json()
     column = next(item for item in metadata["columns"] if item["name"] == "Tempo")
-    assert column["inferred_type"] == "quantitative_continuous"
+    assert column["inferred_type"] == "qualitative_ordinal"
     assert column["has_reported_intervals"] is True
     assert column["has_open_intervals"] is True
 
@@ -163,6 +164,7 @@ def test_api_preserves_reported_open_hour_classes_and_exposes_only_grouped_estim
             "sheet": metadata["sheet"],
             "column": "Tempo",
             "variable_type": "quantitative_continuous",
+            "allow_type_override": True,
             "grouped": grouped,
         },
     )
@@ -197,7 +199,7 @@ def test_api_treats_closed_ranges_with_integer_midpoints_as_continuous_grouped_d
     assert upload.status_code == 201
     metadata = upload.get_json()
     column = next(item for item in metadata["columns"] if item["name"] == "Faixa fechada")
-    assert column["inferred_type"] == "quantitative_continuous"
+    assert column["inferred_type"] == "qualitative_ordinal"
     assert column["has_reported_intervals"] is True
     assert column["has_open_intervals"] is False
 
@@ -207,6 +209,7 @@ def test_api_treats_closed_ranges_with_integer_midpoints_as_continuous_grouped_d
             "dataset_id": metadata["dataset_id"],
             "column": "Faixa fechada",
             "variable_type": "quantitative_continuous",
+            "allow_type_override": True,
             "grouped": False,
         },
     )
@@ -224,7 +227,6 @@ def test_api_treats_closed_ranges_with_integer_midpoints_as_continuous_grouped_d
         ({"column": "Tempo", "secondary_column": "Nota"}, "valores individuais"),
         ({"column": "Nota", "secondary_column": "Tempo"}, "valores individuais"),
         ({"column": "Tempo", "group_column": "Departamento"}, "valores individuais"),
-        ({"column": "Nota", "group_column": "Tempo"}, "coluna categórica"),
     ],
 )
 def test_analysis_api_rejects_comparisons_that_require_individual_values_from_ranges(client, comparison, expected_message):
@@ -240,6 +242,7 @@ def test_analysis_api_rejects_comparisons_that_require_individual_values_from_ra
         json={
             "dataset_id": upload.get_json()["dataset_id"],
             "variable_type": "quantitative_continuous",
+            "allow_type_override": True,
             **comparison,
         },
     )
@@ -266,6 +269,66 @@ def test_analysis_api_rejects_classification_from_the_wrong_family(client):
     )
     assert response.status_code == 400
     assert "classificada como qualitativa" in response.get_json()["error"]
+
+
+def test_api_can_use_range_categories_to_group_individual_numeric_values(client):
+    upload = client.post(
+        "/api/datasets",
+        data={"file": (open_intervals_workbook(), "horas.xlsx")},
+        content_type="multipart/form-data",
+    )
+    response = client.post(
+        "/api/analysis",
+        json={
+            "dataset_id": upload.get_json()["dataset_id"],
+            "column": "Nota",
+            "variable_type": "quantitative_discrete",
+            "group_column": "Tempo",
+        },
+    )
+    assert response.status_code == 200
+    groups = response.get_json()["charts"]["group_comparison"]["groups"]
+    assert "Entre 5 a 6 horas" in {group["label"] for group in groups}
+
+
+def test_survey_rating_and_speed_range_columns_follow_the_observed_response_format(client):
+    rating_question = "8. Como você avalia a qualidade do suporte prestado pelo setor de TI?"
+    speed_question = "29. Qual é aproximadamente a velocidade da internet disponível no seu computador, em Mbps?"
+    stream = BytesIO()
+    frame = pd.DataFrame({
+        rating_question: [4, 5, 5, 4],
+        speed_question: ["Entre 121 a 180 mpbs", "Entre 61 a 120 mpbs"] * 2,
+    })
+    frame.to_excel(stream, index=False)
+    stream.seek(0)
+    upload = client.post(
+        "/api/datasets", data={"file": (stream, "pesquisa.xlsx")}, content_type="multipart/form-data"
+    )
+    assert upload.status_code == 201
+    metadata = upload.get_json()
+    columns = {column["name"]: column for column in metadata["columns"]}
+    assert columns[rating_question]["inferred_type"] == "quantitative_discrete"
+    assert columns[speed_question]["inferred_type"] == "qualitative_ordinal"
+
+    for question in (rating_question, speed_question):
+        response = client.post("/api/analysis", json={
+            "dataset_id": metadata["dataset_id"],
+            "column": question,
+            "variable_type": columns[question]["inferred_type"],
+        })
+        assert response.status_code == 200
+        result = response.get_json()
+        assert result["valid_count"] == 4
+        assert sum(row["frequency"] for row in result["frequency_table"]) == 4
+        if question == rating_question:
+            assert result["statistics"]["mean"] == 4.5
+            assert [row["value"] for row in result["frequency_table"]] == ["4", "5"]
+        else:
+            assert result["statistics"] is None
+            assert result["grouped_statistics"] is None
+            assert [row["value"] for row in result["frequency_table"]] == [
+                "Entre 61 a 120 mpbs", "Entre 121 a 180 mpbs"
+            ]
 
 
 def test_ordinal_analysis_api_returns_default_category_order(client):

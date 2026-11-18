@@ -552,27 +552,24 @@ select option, select optgroup { background: #0d2852; color: #eff4ff; }
 .kpi small { color: #9eafd0; }
 .kpi b { color: #f0f5ff; }
 .kpi b.kpi-text { display: block; font-size: 13px; line-height: 1.5; letter-spacing: 0; }
+.kpi .kpi-detail { display: block; margin-top: 7px; color: #9eafd0; font-size: 10px; line-height: 1.5; }
 .grouped-variable { flex: 0 0 auto; margin: 4px 0 7px; color: #edf3ff; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
 .grouped-method { flex: 0 0 auto; margin: 0 0 14px; padding: 7px 10px; border-left: 2px solid #9973d0; border-radius: 0 6px 6px 0; background: #5e4b961a; color: #b5c6e1; font-size: 10px; }
 #cd_sg .kp { flex: 0 0 auto; gap: 8px; margin-bottom: 14px; }
 #cd_sg .kpi { padding: 12px; }
-#tgr { min-height: 80px; min-width: 0; flex: 0 1 auto; overflow: auto; background: #fff; scrollbar-width: thin; scrollbar-color: #7b6cc7 #fff; }
-#tgr table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 6px; background: #fff; color: #080808; }
-#tgr th, #tgr td { padding: 7px 10px; border: 0; border-radius: 0; text-align: center; vertical-align: middle; overflow-wrap: anywhere; box-shadow: none; }
-#tgr th:first-child, #tgr td:first-child { width: 26%; text-align: center; }
-#tgr thead th { height: 112px; background: #4231a4; color: #fff; font-family: "Segoe UI", Arial, sans-serif; font-size: 22px; font-weight: 750; line-height: 1.4; }
+#tgr { min-height: 80px; min-width: 0; flex: 0 1 auto; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); scrollbar-width: thin; scrollbar-color: rgba(151, 174, 215, .42) var(--surface); }
+#tgr table { width: 100%; min-width: 1100px; table-layout: fixed; border-collapse: separate; border-spacing: 6px; background: var(--surface); color: var(--ink); }
+#tgr th, #tgr td { padding: 7px 8px; border: 0; border-radius: 0; text-align: center; vertical-align: middle; overflow-wrap: anywhere; box-shadow: none; }
+#tgr th:first-child, #tgr td:first-child { width: 15%; text-align: center; }
+#tgr thead th { height: 148px; background: #18365f; color: #c3d2e9; font-family: "Segoe UI", Arial, sans-serif; font-size: 16px; font-weight: 750; line-height: 1.3; overflow-wrap: normal; }
 #tgr .frequency-heading, #tgr .frequency-formula { display: block; }
 #tgr .frequency-formula { margin-top: 3px; font-family: Georgia, "Times New Roman", serif; font-size: 26px; font-style: italic; line-height: 1.1; }
 #tgr .frequency-formula sub { font-size: .7em; }
-#tgr tbody td { height: 42px; background: #f2f2f2; color: #080808; font-family: Georgia, "Times New Roman", serif; font-size: 23px; line-height: 1.2; font-variant-numeric: tabular-nums; }
-#tgr tfoot th, #tgr tfoot td { height: 42px; padding: 7px 10px; background: #f2f2f2; color: #080808; font-family: "Segoe UI", Arial, sans-serif; font-size: 21px; font-weight: 750; line-height: 1.2; }
-#tgr .grouped-detail-table { width: max-content; min-width: 100%; table-layout: auto; border-spacing: 4px; }
-#tgr .grouped-detail-table th, #tgr .grouped-detail-table td { min-width: 105px; max-width: 220px; padding: 9px 10px; }
-#tgr .grouped-detail-table th:first-child, #tgr .grouped-detail-table td:first-child { position: sticky; left: 0; z-index: 1; width: 220px; min-width: 220px; text-align: left; }
-#tgr .grouped-detail-table thead th:first-child { z-index: 2; }
-#tgr .grouped-detail-table tbody td:first-child, #tgr .grouped-detail-table tfoot th:first-child { background: #f2f2f2; }
-#tgr .grouped-detail-table tbody td:nth-child(n+2):nth-child(-n+4), #tgr .grouped-detail-table tbody td:nth-child(n+6) { font-variant-numeric: tabular-nums; }
-#tgr .grouped-detail-table tbody td:nth-child(2), #tgr .grouped-detail-table tbody td:nth-child(3), #tgr .grouped-detail-table tbody td:nth-child(4), #tgr .grouped-detail-table tbody td:nth-child(6), #tgr .grouped-detail-table tbody td:nth-child(8), #tgr .grouped-detail-table tbody td:nth-child(9) { font-size: 16px; }
+#tgr tbody td { height: 42px; background: var(--surface); color: #dce8fa; font-family: Georgia, "Times New Roman", serif; font-size: 20px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+#tgr tbody tr:nth-child(even) td { background: rgba(28, 56, 96, .4); }
+#tgr tbody tr:hover td { background: rgba(94, 76, 145, .27); }
+#tgr tfoot th, #tgr tfoot td { height: 42px; padding: 7px 8px; background: #17355f; color: #e1eaf9; font-family: "Segoe UI", Arial, sans-serif; font-size: 18px; font-weight: 750; line-height: 1.2; }
+.frequency-rounding-note { margin: 0 0 8px; color: #9eafd0; font-size: 9px; }
 @media (max-width: 639px) {
   .grouped-variable { font-size: 11px; }
   .grouped-method { font-size: 9px; margin-bottom: 10px; }
@@ -581,14 +578,10 @@ select option, select optgroup { background: #0d2852; color: #eff4ff; }
   #cd_sg .kpi b.kpi-text { font-size: 11px; }
   #tgr table { border-spacing: 4px; }
   #tgr th, #tgr td { padding: 6px 4px; }
-  #tgr thead th { height: 100px; font-size: 16px; }
+  #tgr thead th { height: 140px; font-size: 16px; }
   #tgr .frequency-formula { font-size: 22px; }
   #tgr tbody td { font-size: 20px; }
   #tgr tfoot th, #tgr tfoot td { font-size: 18px; }
-  #tgr .grouped-detail-table th, #tgr .grouped-detail-table td { min-width: 100px; padding: 8px; }
-  #tgr .grouped-detail-table th:first-child, #tgr .grouped-detail-table td:first-child { width: 190px; min-width: 190px; }
-  #tgr .grouped-detail-table thead th { height: 82px; font-size: 14px; }
-  #tgr .grouped-detail-table tbody td { font-size: 17px; }
   .chart-stage:has(#cd_sg:not([hidden])) { grid-template-rows: auto; }
   #cd_sg { overflow: visible; }
   #tgr { flex: 0 0 auto; }
@@ -682,10 +675,6 @@ body[data-view="landing"] { min-height: 100svh; }
 body[data-view="landing"] .app-shell { height: 100svh; min-height: 0; }
 body[data-view="landing"] .app-workspace { padding: 0; }
 body[data-view="landing"] footer { display: none; }
-.solar-system { position: fixed; z-index: 0; inset: 0; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity 1.4s; }
-.solar-system canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-body[data-view="landing"] .solar-system[data-ready="true"] { opacity: 1; }
-body:not([data-view="landing"]) .solar-system { display: none; }
 .landing-screen { position: relative; display: flex; flex: 1 1 0; min-height: 0; height: 100%; align-items: flex-start; padding: clamp(24px, 6vw, 100px); padding-top: clamp(52px, 12vh, 140px); }
 .landing-copy { min-width: 0; max-width: 100%; margin-left: 0; transform: none; }
 .landing-copy .eyebrow { margin: 0 0 22px; color: #b2bce0; font-size: clamp(10px, .85vw, 14px); font-weight: 600; letter-spacing: .28em; }
@@ -696,9 +685,6 @@ body:not([data-view="landing"]) .solar-system { display: none; }
 .landing-start span { font-size: 21px; line-height: 1; }
 .landing-start:hover { transform: translateY(-2px); border-color: #e1d3ff; box-shadow: 0 10px 34px rgba(123, 75, 205, .45); }
 .landing-start:active { transform: translateY(0); }
-.solar-credit { position: absolute; right: clamp(24px, 3vw, 60px); bottom: 14px; left: clamp(24px, 3vw, 60px); margin: 0; color: #9eabc2; font-size: 10px; letter-spacing: .02em; }
-.solar-credit span { float: right; }
-.solar-credit a { color: inherit; text-underline-offset: 3px; }
 @media (max-width: 959px) {
   .landing-copy { margin-left: 0; }
   .landing-copy h1 { font-size: clamp(32px, 4.7vw, 52px); }
@@ -709,8 +695,6 @@ body:not([data-view="landing"]) .solar-system { display: none; }
   .landing-copy .eyebrow { margin-bottom: 18px; }
   .landing-copy h1 { font-size: clamp(30px, 8.2vw, 45px); line-height: 1.35; }
   .landing-start { min-height: 48px; margin-top: 24px; }
-  .solar-credit { bottom: max(12px, env(safe-area-inset-bottom)); font-size: 8px; text-align: center; }
-  .solar-credit span { display: block; float: none; margin-top: 4px; }
 }
 @media (max-height: 550px) and (min-width: 640px) {
   .landing-screen { padding-top: 22px; }
@@ -718,4 +702,3 @@ body:not([data-view="landing"]) .solar-system { display: none; }
   .landing-copy h1 { font-size: 33px; }
   .landing-start { margin-top: 15px; min-height: 42px; padding: 8px 16px; }
 }
-@media (prefers-reduced-motion: reduce) { .solar-system { transition: none; } }

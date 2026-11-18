@@ -10,8 +10,9 @@ from app.services.variable_classifier import (
     TYPE_LABELS,
     VARIABLE_TYPES,
     allowed_variable_types,
+    classification_options,
     describe_columns,
-    extract_number,
+    extract_individual_number,
     reported_interval_classes,
     resolve_ordinal_order,
 )
@@ -26,14 +27,16 @@ def analyze_column(
     ordinal_order: list[str] | None = None,
     secondary_column: str | None = None,
     group_column: str | None = None,
+    allow_type_override: bool = False,
 ) -> dict:
     if column not in frame.columns:
         raise ValueError("A coluna selecionada não existe.")
     if variable_type not in VARIABLE_TYPES:
         raise ValueError("O tipo de variável informado é inválido.")
 
-    allowed_types = allowed_variable_types(frame[column])
-    if variable_type not in allowed_types:
+    allowed_types = allowed_variable_types(frame[column], column)
+    can_override = variable_type in classification_options(frame[column], column)
+    if variable_type not in allowed_types and not (allow_type_override and can_override):
         expected_family = (
             "quantitativa (discreta ou contínua)"
             if allowed_types[0].startswith("quantitative_")
@@ -402,8 +405,8 @@ def chart_payload(
         if secondary_column and secondary_column in frame.columns and secondary_column != column:
             pair = pd.DataFrame(
                 {
-                    "x": frame[column].map(extract_number),
-                    "y": frame[secondary_column].map(extract_number),
+                    "x": frame[column].map(extract_individual_number),
+                    "y": frame[secondary_column].map(extract_individual_number),
                 },
                 index=frame.index,
             ).dropna().iloc[:max_points]
@@ -451,7 +454,7 @@ def _normalized_groups(series: pd.Series) -> tuple[pd.Series, list[str], set[str
 
 def _group_comparison_payload(frame: pd.DataFrame, column: str, group_column: str) -> dict:
     labels, display_groups, overflow = _normalized_groups(frame[group_column])
-    numeric = frame[column].map(extract_number)
+    numeric = frame[column].map(extract_individual_number)
     comparison = pd.DataFrame({"group": labels, "value": numeric}).dropna(subset=["value"])
     common = set(display_groups[:12])
     if overflow:
@@ -499,14 +502,14 @@ def _group_heatmap_payload(frame: pd.DataFrame, selected_column: str, group_colu
         mask = grouped_labels == group
         row = []
         for name in numeric_columns:
-            values = frame[name].map(extract_number)
+            values = frame[name].map(extract_individual_number)
             selected = values[mask].dropna()
             row.append(_finite(float(selected.mean())) if not selected.empty else None)
         matrix.append(row)
 
     overall = []
     for name in numeric_columns:
-        values = frame[name].map(extract_number).dropna()
+        values = frame[name].map(extract_individual_number).dropna()
         overall.append(_finite(float(values.mean())) if not values.empty else None)
     matrix.append(overall)
     return {
@@ -540,7 +543,7 @@ def _grouped_quantile(rows: list[dict], total: int, quantile: float) -> float | 
 def _numeric_series(series: pd.Series, column: str) -> pd.Series:
     # Use the same extraction rules used during automatic classification.
     numeric = pd.Series(
-        [extract_number(value) for value in series],
+        [extract_individual_number(value) for value in series],
         index=series.index,
         dtype="float64",
     ).replace([np.inf, -np.inf], np.nan).dropna()
@@ -549,7 +552,8 @@ def _numeric_series(series: pd.Series, column: str) -> pd.Series:
     return numeric
 
 def _categorical_series(series: pd.Series) -> pd.Series:
-    return series.dropna().map(lambda value: str(value).strip() or "(vazio)")
+    labels = series.dropna().map(lambda value: str(value).strip())
+    return labels[labels != ""]
 
 
 def _finite(value: float | None):

@@ -8,7 +8,6 @@ const state = {
     columns: [],
     analysis: null,
     groupedAnalysis: null,
-    scatterAnalysis: null,
     downloads: [],
     activeChart: 0,
     chartAvailability: null,
@@ -63,7 +62,7 @@ function initialize() {
         "ordinalField", "ordinalSummary", "ordinalOrderHint", "editOrdinalOrder",
         "ordinalDialog", "ordinalDialogVariable", "ordinalDialogStatus", "ordinalList", "ordinalReset", "ordinalReverse",
         "ordinalApply", "ordinalCancel", "ordinalClose", "ordinalAnnounce", "ordinalPagination", "ordinalPrevious", "ordinalNext", "ordinalPageLabel",
-        "secondaryField", "secondaryColumn", "groupedToggle",
+        "groupedToggle",
         "binsField", "binsInput", "inferenceHint", "rangeNotice", "rowCount", "columnCount", "tpl", "rst", "loading",
         "kun", "kgr", "tgr", "cfreqTableBody", "cfreqTableTotal", "cfreqTablePercent",
         "groupedVariable", "groupedMethod", "groupedMeasuresNote", "individualMeasuresNote",
@@ -141,7 +140,6 @@ function bindEvents() {
     elements.ordinalPrevious.addEventListener("click", () => { state.ordinalPage--; elements.ordinalList.scrollTop = 0; renderOrdinalList(); });
     elements.ordinalNext.addEventListener("click", () => { state.ordinalPage++; elements.ordinalList.scrollTop = 0; renderOrdinalList(); });
     elements.ordinalApply.addEventListener("click", applyOrdinalOrder);
-    elements.secondaryColumn.addEventListener("change", runAnalysis);
     elements.groupedToggle.addEventListener("change", () => {
         syncGroupedControls();
         runAnalysis();
@@ -305,7 +303,7 @@ function populateVariableSelect() {
     const categorical = state.columns.filter((column) => !column.inferred_type.startsWith("quantitative_"));
     const quantitative = state.columns.filter((column) => column.inferred_type.startsWith("quantitative_"));
     if (categorical.length) appendOptionGroup(elements.gf, "Categorias", categorical);
-    if (quantitative.length) appendOptionGroup(elements.gf, "Numéricas (contagens, medidas e faixas)", quantitative);
+    if (quantitative.length) appendOptionGroup(elements.gf, "Numéricas (valores individuais)", quantitative);
     const selected = state.columns.some((column) => column.name === previous)
         ? previous
         : (categorical[0] || quantitative[0])?.name;
@@ -333,15 +331,13 @@ function syncVariableConfiguration() {
     if (type !== requestedType) delete state.typeOverrides[column.name];
     renderOrdinalSummary();
     updateInferenceHint(column, type);
-    populateComparisonColumns(column);
     syncTypeControls();
 }
 
 function allowedTypesForColumn(column) {
     if (!column) return [];
-    const family = column.inferred_type.startsWith("quantitative_") ? "quantitative_" : "qualitative_";
-    const types = column.allowed_types || Object.keys(variableTypeLabels);
-    return types.filter((type) => type.startsWith(family) && variableTypeLabels[type]);
+    const types = column.classification_options || column.allowed_types || Object.keys(variableTypeLabels);
+    return types.filter((type) => variableTypeLabels[type]);
 }
 
 function ordinalOrderForColumn(column = selectedColumn()) {
@@ -469,23 +465,16 @@ function updateInferenceHint(column, appliedType) {
     const manualAdjustment = appliedType !== column.inferred_type ? " (ajustada manualmente)" : "";
     const allowedLabels = allowedTypesForColumn(column).map((type) => variableTypeLabels[type].toLowerCase()).join(" ou ");
 
-    elements.inferenceHint.textContent = `Pergunta selecionada: “${column.name}”. Respostas identificadas como ${responseDescription}. Sugestão: ${suggestedLabel}; classificação usada: ${appliedLabel}${manualAdjustment}. Opções compatíveis com os dados desta coluna: ${allowedLabels}.`;
+    elements.inferenceHint.textContent = `Pergunta selecionada: “${column.name}”. Respostas identificadas como ${responseDescription}. Sugestão: ${suggestedLabel}; classificação usada: ${appliedLabel}${manualAdjustment}. Opções disponíveis: ${allowedLabels}. ${column.inference_reason || ""}`.trim();
     elements.rangeNotice.hidden = !column.has_reported_intervals;
     elements.rangeNotice.textContent = column.has_reported_intervals
-        ? "Os gráficos e tabelas preservam as faixas originais da pesquisa. " + (column.has_open_intervals
+        ? !appliedType.startsWith("quantitative_")
+            ? "As faixas são categorias da pesquisa e mantêm os rótulos originais. Para calcular estimativas por intervalo de classe, selecione Quantitativa contínua manualmente."
+            : "Os gráficos e tabelas preservam as faixas originais da pesquisa. " + (column.has_open_intervals
             ? "Há faixa aberta, como ‘mais de’: a média não é calculada sem conhecer o limite que falta."
             : "As medidas por classe são estimativas; não há valores individuais observados.")
         : "";
     if (column.has_reported_intervals) elements.inferenceHint.textContent += " " + elements.rangeNotice.textContent;
-}
-
-function populateComparisonColumns(column) {
-    const numeric = state.columns.filter((item) => item.inferred_type.startsWith("quantitative_") && !item.has_reported_intervals);
-
-    clearElement(elements.secondaryColumn);
-    addOption(elements.secondaryColumn, "", "Valores individuais por resposta", true);
-    numeric.filter((item) => item.name !== column.name).forEach((item) => addOption(elements.secondaryColumn, item.name, item.name, false));
-    elements.secondaryColumn.value = "";
 }
 
 function syncTypeControls() {
@@ -498,11 +487,8 @@ function syncTypeControls() {
     if (boxButton) boxButton.hidden = !quantitative || reportedIntervals;
     elements.ordinalField.hidden = type !== "qualitative_ordinal";
     if (type === "qualitative_ordinal") renderOrdinalSummary();
-    elements.secondaryField.hidden = activeChart !== "dot" || !quantitative || reportedIntervals;
     const classControls = elements.groupedToggle.closest(".advanced-settings");
     if (classControls) classControls.hidden = !quantitative || reportedIntervals || ["box", "dot"].includes(activeChart);
-    const secondaryLabel = elements.secondaryField.querySelector(".lb");
-    if (secondaryLabel) secondaryLabel.textContent = "Comparar com outra variável (opcional)";
     if ((!quantitative || reportedIntervals) && state.activeChart === boxIndex) {
         pickChart(0);
         return;
@@ -522,30 +508,26 @@ async function runAnalysis() {
     const column = selectedColumn();
     const type = elements.typeSelect.value;
     const quantitative = type.startsWith("quantitative_");
-    const secondaryColumn = quantitative && !column.has_reported_intervals ? (elements.secondaryColumn.value || null) : null;
     const common = {
         dataset_id: state.datasetId,
         sheet: state.sheet,
         column: column.name,
         variable_type: type,
         ordinal_order: type === "qualitative_ordinal" ? (state.orderOverrides[column.name] || null) : null,
+        allow_type_override: !(column.allowed_types || []).includes(type),
     };
 
     setLoading(true);
     clearAnalysisError();
     try {
-        const requests = [requestAnalysis({ ...common, grouped: false, secondary_column: null })];
+        const requests = [requestAnalysis(common)];
         requests.push(quantitative
-            ? requestAnalysis({ ...common, grouped: true, bins: elements.groupedToggle.checked ? (elements.binsInput.value || null) : null, secondary_column: null })
+            ? requestAnalysis({ ...common, grouped: true, bins: elements.groupedToggle.checked ? (elements.binsInput.value || null) : null })
             : Promise.resolve(null));
-        requests.push(quantitative && secondaryColumn
-            ? requestAnalysis({ ...common, grouped: false, secondary_column: secondaryColumn, group_column: null })
-            : Promise.resolve(null));
-        const [analysis, groupedAnalysis, scatterAnalysis] = await Promise.all(requests);
+        const [analysis, groupedAnalysis] = await Promise.all(requests);
         if (request !== state.requestId) return;
         state.analysis = analysis;
         state.groupedAnalysis = groupedAnalysis;
-        state.scatterAnalysis = scatterAnalysis;
         renderAnalysis();
     } catch (error) {
         if (request === state.requestId) setAnalysisError(error.message);
@@ -581,7 +563,7 @@ function renderAnalysis() {
         pizza: true,
         table: true,
         rawtable: true,
-        dot: quantitative && Boolean(scatterChartPayload(analysis)?.series_x?.length),
+        dot: quantitative && Boolean(analysis.charts.series_x?.length),
         line: analysis.has_reported_intervals || hasDate || (quantitative && Boolean(chartData.series_y?.length)),
         ogv: quantitative && Boolean(state.groupedAnalysis?.has_reported_intervals || state.groupedAnalysis?.charts?.cumulative_x?.length),
         box: quantitative && Boolean(chartData.box_values?.length),
@@ -631,11 +613,6 @@ function usesGroupedDistribution(analysis) {
     const reported = state.groupedAnalysis?.column === analysis.column && state.groupedAnalysis?.grouping?.source === "reported_intervals";
     return reported || analysis.variable_type === "quantitative_continuous" ||
         (analysis.variable_type === "quantitative_discrete" && elements.groupedToggle.checked);
-}
-
-function scatterChartPayload(analysis = state.analysis) {
-    if (!analysis) return null;
-    return elements.secondaryColumn.value ? state.scatterAnalysis?.charts : analysis.charts;
 }
 
 function distributionFrequencyRows(analysis) {
@@ -699,9 +676,7 @@ function syncChartContext(analysis) {
 
 function chartContextLabel(key, analysis) {
     if (key === "dot") {
-        const scatter = scatterChartPayload(analysis);
-        if (scatter && !elements.secondaryColumn.value) return analysis.column;
-        if (scatter?.scatter_x_label && scatter?.scatter_y_label) return `${scatter.scatter_y_label} por ${scatter.scatter_x_label}`;
+        return analysis.column;
     }
     if (key === "box") {
         return analysis.variable_type.startsWith("quantitative_") ? analysis.column : "Boxplot";
@@ -756,37 +731,36 @@ function renderCharts(analysis) {
     renderPieChart(frequency, "pie");
     renderFrequencyTable(frequency);
     const quantitative = analysis.variable_type.startsWith("quantitative_");
-    const scatter = scatterChartPayload(analysis);
+    const scatter = analysis.charts;
     if (quantitative && scatter?.series_x?.length) {
         const compact = window.matchMedia("(max-width: 640px)").matches;
-        const paired = Boolean(elements.secondaryColumn.value);
-        const xLabel = paired ? scatter.scatter_x_label : "Ordem da resposta";
+        const xLabel = "Ordem da resposta";
         const points = scatter.series_x.map((x, index) => [Number(x), Number(scatter.series_y[index])]);
-        const name = scatter.scatter_y_label + " por " + (paired ? scatter.scatter_x_label : "resposta");
+        const name = analysis.column + " por resposta";
         const heading = document.querySelector("#cd_dot .chart-head h2");
-        if (heading) heading.textContent = paired ? "Pontos — relação entre variáveis" : "Pontos — valores individuais";
+        if (heading) heading.textContent = "Pontos — valores individuais";
         const axisContext = document.getElementById("dotAxisContext");
-        if (axisContext) axisContext.textContent = `Eixo X: ${xLabel}. Eixo Y: ${scatter.scatter_y_label}. Cada ponto representa uma resposta individual.`;
+        if (axisContext) axisContext.textContent = "Eixo X: " + xLabel + ". Eixo Y: " + analysis.column + ". Cada ponto representa uma resposta individual.";
         makeChart("cdot", {
-            ...baseChartOption([compact ? (paired ? "Relação entre variáveis" : "Respostas individuais") : name]),
+            ...baseChartOption([compact ? "Respostas individuais" : name]),
             tooltip: chartTooltip("item", null, (point) => chartTooltipLines(name, [
                 xLabel + ": " + formatNumber(point.value[0]),
-                String(scatter.scatter_y_label) + ": " + formatNumber(point.value[1]),
+                analysis.column + ": " + formatNumber(point.value[1]),
             ])),
             grid: { left: compact ? 42 : 56, right: 18, top: 42, bottom: compact ? 54 : 54, containLabel: true },
             xAxis: {
                 ...chartValueAxis(),
-                name: compact && paired ? "Eixo X" : xLabel,
+                name: compact ? "Respostas" : xLabel,
                 nameLocation: "middle",
                 nameGap: compact ? 24 : 34,
-                minInterval: paired ? undefined : 1,
-                min: paired ? undefined : 1,
-                max: paired ? undefined : Math.max(2, points.length),
+                minInterval: 1,
+                min: 1,
+                max: Math.max(2, points.length),
                 axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, formatter: (value) => formatNumber(value) },
             },
             yAxis: {
                 ...chartValueAxis(),
-                name: compact ? "Eixo Y" : scatter.scatter_y_label,
+                name: compact ? "Eixo Y" : analysis.column,
                 nameLocation: "middle",
                 nameGap: compact ? 28 : 44,
                 axisLabel: { color: CHART_TEXT, fontSize: compact ? 10 : 11, formatter: (value) => formatNumber(value) },
@@ -1426,18 +1400,102 @@ function renderBoxplot(analysis) {
 function renderKpis(container, stats, grouped) {
     clearElement(container);
     if (!stats) return;
-    const mode = grouped ? (stats.mode_note || formatNumber(stats.mode)) : (stats.mode_note || (stats.mode?.length ? stats.mode.map(formatNumber).join(" / ") : "—"));
+    const groupedMode = grouped ? groupedModeSummary(stats) : null;
+    const mode = stats.mode_note || (stats.mode?.length ? stats.mode.map(formatNumber).join(" / ") : "—");
     const rows = grouped
-        ? [["Média estimada", stats.mean], ["Mediana estimada", stats.median], ["Moda", mode], ["Q1 (25%)", stats.q1], ["Q2 (50%)", stats.q2], ["Q3 (75%)", stats.q3]]
+        ? [["Média estimada", stats.mean], ["Mediana estimada", stats.median], [groupedMode.label, groupedMode.value, groupedMode.detail], ["Q1 (25%)", stats.q1], ["Q2 (50%)", stats.q2], ["Q3 (75%)", stats.q3]]
         : [["Média", stats.mean], ["Mediana", stats.median], ["Moda", mode], ["Q1 (25%)", stats.q1], ["Q2 (50%)", stats.q2], ["Q3 (75%)", stats.q3]];
-    rows.forEach(([label, value]) => {
+    rows.forEach(([label, value, detail]) => {
         const card = document.createElement("div"); card.className = "kpi";
         const caption = document.createElement("small"); caption.textContent = label;
         const result = document.createElement("b"); result.textContent = typeof value === "string" ? value : formatNumber(value);
         if (typeof value === "string" && value.length > 16) result.classList.add("kpi-text");
-        card.append(caption, result); container.appendChild(card);
+        card.append(caption, result);
+        if (detail) {
+            const note = document.createElement("span"); note.className = "kpi-detail"; note.textContent = detail;
+            card.appendChild(note);
+        }
+        container.appendChild(card);
     });
 }
+
+function intervalDisplayPrecision(rows) {
+    const bounds = [...new Set(rows.flatMap((row) => [row.lower, row.upper]).filter(Number.isFinite))];
+    for (let precision = 2; precision <= 20; precision++) {
+        const labels = bounds.map((value) => formatGroupedNumber(value, precision, 0, false));
+        if (new Set(labels).size === bounds.length) return precision;
+    }
+    return 20;
+}
+
+function groupedIntervalLabel(row, precision = 2) {
+    if (!Number.isFinite(row.lower) || !Number.isFinite(row.upper)) return String(row.value ?? "—");
+    const lower = formatGroupedNumber(row.lower, precision, 0, false);
+    const upper = formatGroupedNumber(row.upper, precision, 0, false);
+    const rounded = roundGroupedNumber(row.lower, precision) !== row.lower || roundGroupedNumber(row.upper, precision) !== row.upper;
+    return (rounded ? "≈ " : "") + lower + " – " + upper;
+}
+
+function groupedModeSummary(stats, analysis = state.groupedAnalysis) {
+    if (Number.isFinite(stats.mode)) {
+        const constant = analysis?.frequency_table?.every((row) => row.lower === row.upper);
+        return { label: constant ? "Moda" : "Moda estimada", value: formatNumber(stats.mode) };
+    }
+    if (!stats.modal_classes?.length || !analysis?.frequency_table) return { label: "Moda", value: stats.mode_note || "—" };
+    const precision = intervalDisplayPrecision(analysis.frequency_table);
+    const reported = analysis.grouping?.source === "reported_intervals";
+    const modalRows = analysis.frequency_table.filter((row) => stats.modal_classes.includes(row.value));
+    const labels = stats.modal_classes.map((label) => {
+        const row = modalRows.find((item) => item.value === label);
+        return reported ? label : row ? groupedIntervalLabel(row, precision) : label;
+    });
+    const count = Number(modalRows[0]?.frequency) || 0;
+    const percentage = analysis.valid_count ? formatFrequencyPercentage(count * 100 / analysis.valid_count) : "0%";
+    const detail = formatInteger(count) + " " + (count === 1 ? "resposta" : "respostas") + " (" + percentage + ") "
+        + (labels.length === 1 ? "nesta faixa. " : "em cada faixa. ")
+        + (reported ? "A moda numérica exata não pode ser determinada com respostas em faixas." : "Não há uma única classe modal.");
+    return { label: labels.length === 1 ? "Classe modal" : "Classes modais", value: labels.join("; "), detail };
+}
+
+function classFrequencyMetrics(row, total) {
+    const frequency = Number(row.frequency) || 0;
+    const cumulative = Number(row.cumulative_frequency) || 0;
+    return {
+        frequency,
+        cumulative,
+        relative: total ? frequency / total : 0,
+        percentage: total ? frequency * 100 / total : 0,
+        cumulativeRelative: total ? cumulative / total : 0,
+        cumulativePercentage: total ? cumulative * 100 / total : 0,
+    };
+}
+
+function formatGroupedNumber(value, precision = 2, minimumFractionDigits = 0, useGrouping = true) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "—";
+    const numeric = Number(value) === 0 ? 0 : Number(value);
+    let digits = precision;
+    if (Math.abs(numeric) && Math.abs(numeric) < .5 * 10 ** -digits) {
+        digits = Math.min(20, Math.max(digits, Math.ceil(-Math.log10(Math.abs(numeric))) + 1));
+    }
+    const formatted = numeric.toLocaleString("pt-BR", { minimumFractionDigits, maximumFractionDigits: digits, useGrouping });
+    if (numeric && Number(numeric.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: digits })) === 0) {
+        return numeric.toLocaleString("pt-BR", { notation: "scientific", maximumFractionDigits: 2, useGrouping: false });
+    }
+    return formatted;
+}
+
+function roundGroupedNumber(value, precision = 2) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return value;
+    const numeric = Number(value);
+    const digits = Math.abs(numeric) && Math.abs(numeric) < .5 * 10 ** -precision
+        ? Math.min(20, Math.max(precision, Math.ceil(-Math.log10(Math.abs(numeric))) + 1))
+        : precision;
+    const rounded = Number(numeric.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: digits }));
+    return rounded === 0 && numeric !== 0 ? Number(numeric.toExponential(2)) : rounded === 0 ? 0 : rounded;
+}
+
+function formatRelativeFrequency(value) { return formatGroupedNumber(value, 2, 2); }
+function formatFrequencyPercentage(value) { return formatGroupedNumber(value) + "%"; }
 
 function renderGroupedTable(analysis) {
     const rows = analysis.frequency_table;
@@ -1453,69 +1511,76 @@ function renderGroupedTable(analysis) {
     elements.groupedMeasuresNote.textContent = reported && analysis.grouping?.note
         ? analysis.grouping.note
         : `${analysis.grouping?.note || ""} ${analysis.grouped_statistics?.note || "Média estimada pelos pontos médios; mediana e quartis por interpolação das classes."}`.trim();
+    const precision = intervalDisplayPrecision(rows);
+    const roundingNote = document.getElementById("frequencyRoundingNote");
+    if (roundingNote) {
+        const rounded = !reported && rows.some((row) => Number.isFinite(row.lower) && Number.isFinite(row.upper)
+            && (roundGroupedNumber(row.lower, precision) !== row.lower || roundGroupedNumber(row.upper, precision) !== row.upper));
+        roundingNote.hidden = !rounded;
+    }
     const table = document.createElement("table");
-    table.className = "reference-frequency-table grouped-detail-table";
-    table.setAttribute("aria-label", "Tabela detalhada de frequências, pontos médios e frequências acumuladas por classe");
+    table.className = "reference-frequency-table";
+    table.setAttribute("aria-label", "Dados e frequências absolutas, relativas, percentuais e acumuladas");
     const head = table.createTHead().insertRow();
-    const firstHeader = /\bidade[s]?\b|faixa\s+et[aá]ria/i.test(analysis.column) ? "Idades" : "Intervalos";
     const headers = [
-        firstHeader,
-        "Limite inferior",
-        "Limite superior",
-        "Ponto médio (xi)",
-        "Frequência (fi)",
-        "Frequência relativa (%)",
-        "Frequência acumulada (Fac)",
-        "Frequência acumulada (%)",
-        "fi × xi",
+        { lines: ["Dados"], description: analysis.column },
+        { lines: ["Frequência"], symbol: "f", subscript: "i", description: "Número de respostas na classe (fi)" },
+        { lines: ["Frequência", "Acumulada"], symbol: "f", subscript: "ac", description: "Soma das frequências até esta linha (Fac)" },
+        { lines: ["Frequência", "Relativa"], symbol: "FR", description: "Frequência relativa: fi dividido pelo total de respostas" },
+        { lines: ["Frequência", "Relativa", "Percentual"], symbol: "FR%", description: "Frequência relativa em porcentagem" },
+        { lines: ["Frequência", "Relativa", "Acumulada"], symbol: "FR", subscript: "ac", description: "Frequência acumulada dividida pelo total de respostas" },
+        { lines: ["Frequência", "Relativa", "Percentual", "Acumulada"], symbol: "FR%", subscript: "ac", description: "Frequência relativa acumulada em porcentagem" },
     ];
-    headers.forEach((label, index) => {
+    headers.forEach((header) => {
         const cell = document.createElement("th"); cell.scope = "col";
+        cell.title = header.description;
+        cell.setAttribute("aria-label", header.lines.join(" ") + ". " + header.description);
         const title = document.createElement("span"); title.className = "frequency-heading";
-        title.textContent = label;
+        header.lines.forEach((line, index) => { if (index) title.appendChild(document.createElement("br")); title.append(line); });
         cell.appendChild(title);
+        if (header.symbol) {
+            const formula = document.createElement("span"); formula.className = "frequency-formula";
+            const symbol = document.createElement("i"); symbol.textContent = header.symbol;
+            formula.append("(", symbol);
+            if (header.subscript) {
+                const subscript = document.createElement("sub"); subscript.textContent = header.subscript; formula.appendChild(subscript);
+            }
+            formula.append(")"); cell.appendChild(formula);
+        }
         head.appendChild(cell);
     });
     const body = table.createTBody();
+    const total = Number(analysis.valid_count) || rows.reduce((sum, row) => sum + Number(row.frequency), 0);
+    const intervalPrecision = precision;
     rows.forEach((row) => {
         const tr = body.insertRow();
         const interval = tr.insertCell();
-        if (!reported && Number.isFinite(row.lower) && Number.isFinite(row.upper)) {
-            const bound = (value) => Number(value).toLocaleString("pt-BR", { useGrouping: false, maximumSignificantDigits: 15 });
-            interval.textContent = `${bound(row.lower)} – ${bound(row.upper)}`;
-        } else interval.textContent = row.value;
-        interval.title = row.value;
-        interval.setAttribute("aria-label", row.value);
-        const lower = tr.insertCell();
-        lower.textContent = row.lower === null || row.lower === undefined ? "—" : formatNumber(row.lower);
-        lower.title = "Limite inferior conhecido da classe";
-        const upper = tr.insertCell();
-        upper.textContent = row.upper === null || row.upper === undefined ? "—" : formatNumber(row.upper);
-        upper.title = "Limite superior conhecido da classe";
-        const midpoint = tr.insertCell();
-        midpoint.textContent = row.midpoint === null || row.midpoint === undefined ? "—" : formatNumber(row.midpoint);
-        midpoint.title = "Ponto médio xi; não definido para classes abertas";
-        tr.insertCell().textContent = formatInteger(row.frequency);
-        tr.insertCell().textContent = `${Number(row.percentage || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-        tr.insertCell().textContent = formatInteger(row.cumulative_frequency);
-        tr.insertCell().textContent = `${Number(row.cumulative_percentage || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-        const contribution = tr.insertCell();
-        contribution.textContent = row.midpoint === null || row.midpoint === undefined ? "—" : formatNumber(row.midpoint * row.frequency);
-        contribution.title = "Contribuição da classe à média estimada: frequência × ponto médio";
+        interval.textContent = groupedIntervalLabel(row, intervalPrecision);
+        interval.title = String(row.value) + ". Limites usados no cálculo: " + (row.lower ?? "desconhecido")
+            + " a " + (row.upper ?? "desconhecido") + "; ponto médio " + (row.midpoint ?? "indisponível") + ".";
+        interval.setAttribute("aria-label", interval.title);
+        const values = classFrequencyMetrics(row, total);
+        [
+            formatInteger(values.frequency),
+            formatInteger(values.cumulative),
+            formatRelativeFrequency(values.relative),
+            formatFrequencyPercentage(values.percentage),
+            formatRelativeFrequency(values.cumulativeRelative),
+            formatFrequencyPercentage(values.cumulativePercentage),
+        ].forEach((value) => { tr.insertCell().textContent = value; });
     });
     const footer = table.createTFoot().insertRow();
     const totalLabel = document.createElement("th"); totalLabel.scope = "row"; totalLabel.textContent = "TOTAL"; footer.appendChild(totalLabel);
-    footer.insertCell().textContent = "";
-    footer.insertCell().textContent = "";
-    footer.insertCell().textContent = "—";
-    footer.insertCell().textContent = formatInteger(analysis.valid_count);
-    footer.insertCell().textContent = "100%";
-    footer.insertCell().textContent = formatInteger(analysis.valid_count);
-    footer.insertCell().textContent = "100%";
-    const weightedTotal = analysis.grouped_statistics?.mean === null || analysis.grouped_statistics?.mean === undefined
-        ? "—"
-        : formatNumber(analysis.grouped_statistics.mean * analysis.valid_count);
-    footer.insertCell().textContent = weightedTotal;
+    totalLabel.title = "As frequências são totalizadas; as colunas acumuladas mostram o valor final.";
+    const final = classFrequencyMetrics(rows[rows.length - 1], total);
+    [
+        formatInteger(total),
+        formatInteger(final.cumulative),
+        formatRelativeFrequency(1),
+        "100%",
+        formatRelativeFrequency(final.cumulativeRelative),
+        formatFrequencyPercentage(final.cumulativePercentage),
+    ].forEach((value) => { footer.insertCell().textContent = value; });
     elements.tgr.appendChild(table);
 }
 
@@ -1535,9 +1600,8 @@ function renderDownloads(availability) {
     specs.push({ key: "table", title: "Tabela agrupada", filename: "frequencias", rows: frequencies });
     specs.push({ key: "rawtable", title: "Tabela geral", filename: "dados_da_planilha", fullDataset: true });
     if (availability.dot) specs.push({ key: "dot", title: "Ponto", filename: "ponto", rows: () => {
-        const values = scatterChartPayload(analysis);
-        const xLabel = elements.secondaryColumn.value ? values.scatter_x_label : "Ordem da resposta";
-        return makeRows([xLabel, values.scatter_y_label], values.series_x.map((x, index) => [x, values.series_y[index]]));
+        const values = analysis.charts;
+        return makeRows(["Ordem da resposta", analysis.column], values.series_x.map((x, index) => [x, values.series_y[index]]));
     }, chartId: "cdot", chartIndex: 6 });
     if (availability.line) specs.push({ key: "line", title: "Linha", filename: "linha", rows: () => {
         const values = analysis.charts;
@@ -1563,9 +1627,20 @@ function renderDownloads(availability) {
     } });
     if (availability.sg) specs.push({ key: "sg", title: "Medidas com intervalo de classe", filename: "medidas_com_classe", rows: () => {
         const stats = grouped.grouped_statistics;
+        const mode = groupedModeSummary(stats, grouped);
         const head = ["Medida", "Valor"];
-        const measures = [["Variável", analysis.column], ["Método das classes", grouped.grouping?.source === "reported_intervals" ? "Faixas originais da planilha" : grouped.grouping?.method || "automático"], ["n", grouped.valid_count], ["Média estimada", stats.mean], ["Mediana estimada", stats.median], ["Moda", stats.mode_note || stats.mode], ["Q1", stats.q1], ["Q2", stats.q2], ["Q3", stats.q3], ["Origem dos intervalos", grouped.grouping?.note || ""], ["Observação", stats.note]];
-        return [head, ...measures, ["", ""], ["Classe", "Limite inferior", "Limite superior", "Ponto médio (xi)", "fi", "Frequência relativa (%)", "Fi", "Frequência acumulada (%)", "fi × xi"], ...grouped.frequency_table.map((row) => [row.value, row.lower, row.upper, row.midpoint, row.frequency, row.percentage, row.cumulative_frequency, row.cumulative_percentage, row.midpoint === null || row.midpoint === undefined ? null : row.frequency * row.midpoint]), ["Total", "", "", "", grouped.valid_count, 100, grouped.valid_count, 100, grouped.grouped_statistics.mean === null ? null : grouped.grouped_statistics.mean * grouped.valid_count]];
+        const measures = [["Variável", analysis.column], ["Método das classes", grouped.grouping?.source === "reported_intervals" ? "Faixas originais da planilha" : grouped.grouping?.method || "automático"], ["n", grouped.valid_count], ["Média estimada", roundGroupedNumber(stats.mean)], ["Mediana estimada", roundGroupedNumber(stats.median)], [mode.label, Number.isFinite(stats.mode) ? roundGroupedNumber(stats.mode) : mode.value], ...(mode.detail ? [["Observação da moda", mode.detail]] : []), ["Q1", roundGroupedNumber(stats.q1)], ["Q2", roundGroupedNumber(stats.q2)], ["Q3", roundGroupedNumber(stats.q3)], ["Origem dos intervalos", grouped.grouping?.note || ""], ["Observação", stats.note]];
+        const total = Number(grouped.valid_count);
+        const intervalPrecision = intervalDisplayPrecision(grouped.frequency_table);
+        const frequencyRows = grouped.frequency_table.map((row) => {
+            const values = classFrequencyMetrics(row, total);
+            return [groupedIntervalLabel(row, intervalPrecision), values.frequency, values.cumulative, roundGroupedNumber(values.relative), roundGroupedNumber(values.percentage), roundGroupedNumber(values.cumulativeRelative), roundGroupedNumber(values.cumulativePercentage)];
+        });
+        const final = classFrequencyMetrics(grouped.frequency_table[grouped.frequency_table.length - 1], total);
+        return [head, ...measures, ["", ""], ["Dados", "Frequência (fi)", "Frequência Acumulada (fac)", "Frequência Relativa (FR)", "Frequência Relativa Percentual (FR%)", "Frequência Relativa Acumulada (FRac)", "Frequência Relativa Percentual Acumulada (FR%ac)"], ...frequencyRows,
+            ["TOTAL", total, final.cumulative, 1, 100, final.cumulativeRelative, final.cumulativePercentage], ["", ""],
+            ["Detalhes dos intervalos — precisão original"], ["Faixa original", "Limite inferior", "Limite superior", "Ponto médio (xi)"],
+            ...grouped.frequency_table.map((row) => [row.value, row.lower, row.upper, row.midpoint])];
     } });
 
     specs.forEach((spec) => {
@@ -1817,7 +1892,6 @@ async function removeDataset() {
     state.columns = [];
     state.analysis = null;
     state.groupedAnalysis = null;
-    state.scatterAnalysis = null;
     state.downloads = [];
     state.activeChart = 0;
     state.tablePage = 0;

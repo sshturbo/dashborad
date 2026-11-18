@@ -133,6 +133,7 @@ def test_grouped_reported_intervals_preserve_source_ranges_and_estimate_measures
         "quantitative_continuous",
         grouped=True,
         bins=3,
+        allow_type_override=True,
     )
 
     rows = result["frequency_table"]
@@ -163,16 +164,14 @@ def test_grouped_reported_intervals_preserve_source_ranges_and_estimate_measures
         ["1 a 15", "16 a 30", "45"],
     ],
 )
-def test_overlapping_or_mixed_reported_intervals_fall_back_to_generated_classes(values):
-    result = analyze_column(
-        pd.DataFrame({"Resposta": values}),
-        "Resposta",
-        "quantitative_continuous",
-        grouped=True,
-        bins=2,
-    )
-    assert result["grouping"]["source"] == "generated"
-    assert result["grouping"]["method"] == "manual"
+def test_overlapping_or_mixed_ranges_remain_categories_without_fabricated_midpoints(values):
+    frame = pd.DataFrame({"Resposta": values})
+    result = analyze_column(frame, "Resposta", "qualitative_nominal")
+    assert result["valid_count"] == len(values)
+    assert result["statistics"] is None
+    assert result["grouped"] is False
+    with pytest.raises(ValueError, match="qualitativa"):
+        analyze_column(frame, "Resposta", "quantitative_continuous", grouped=True, allow_type_override=True)
 
 
 def test_grouped_reported_interval_variants_are_counted_together():
@@ -182,6 +181,7 @@ def test_grouped_reported_interval_variants_are_counted_together():
         "Tempo",
         "quantitative_continuous",
         grouped=True,
+        allow_type_override=True,
     )
 
     assert result["grouping"]["source"] == "reported_intervals"
@@ -204,6 +204,7 @@ def test_reported_open_intervals_preserve_counts_without_individual_observations
         "quantitative_continuous",
         grouped=grouped,
         bins=2,
+        allow_type_override=True,
     )
 
     rows = result["frequency_table"]
@@ -247,7 +248,9 @@ def test_open_interval_only_suppresses_quantiles_inside_the_open_class(counts, q
     labels = ["Entre 5 a 6 horas", "Entre 7 a 8 horas", "+8 horas"]
     values = [label for label, count in zip(labels, counts) for _ in range(count)]
 
-    result = analyze_column(pd.DataFrame({"Tempo": values}), "Tempo", "quantitative_continuous")
+    result = analyze_column(
+        pd.DataFrame({"Tempo": values}), "Tempo", "quantitative_continuous", allow_type_override=True
+    )
 
     estimates = result["grouped_statistics"]
     assert estimates["mean"] is None
@@ -262,7 +265,7 @@ def test_open_interval_only_suppresses_quantiles_inside_the_open_class(counts, q
 def test_closed_reported_intervals_also_do_not_create_individual_values(grouped):
     frame = pd.DataFrame({"Tempo": ["Entre 1 a 3 horas", "Entre 5 a 7 horas", "Entre 1 a 3 horas"]})
 
-    result = analyze_column(frame, "Tempo", "quantitative_continuous", grouped=grouped)
+    result = analyze_column(frame, "Tempo", "quantitative_continuous", grouped=grouped, allow_type_override=True)
 
     assert result["grouped"] is True
     assert result["statistics"] is None
@@ -342,3 +345,28 @@ def test_classification_can_change_within_its_numeric_or_text_family():
 def test_rejects_classification_from_the_wrong_data_family(frame, column, classification, expected_family):
     with pytest.raises(ValueError, match=expected_family):
         analyze_column(frame, column, classification)
+
+
+def test_ordinal_range_analysis_preserves_labels_and_counts_without_numeric_statistics():
+    values = ["Entre 121 a 180 mpbs", "Entre 61 a 120 mpbs", "Entre 121 a 180 mpbs", None, ""]
+    result = analyze_column(pd.DataFrame({"Velocidade": values}), "Velocidade", "qualitative_ordinal")
+    assert result["statistics"] is None
+    assert result["grouped_statistics"] is None
+    assert result["grouped"] is False
+    assert result["valid_count"] == 3
+    assert result["missing_count"] == 2
+    assert result["ordinal_order_source"] == "recognized"
+    assert [(row["value"], row["frequency"]) for row in result["frequency_table"]] == [
+        ("Entre 61 a 120 mpbs", 1), ("Entre 121 a 180 mpbs", 2)
+    ]
+    assert result["charts"]["series_y"] == []
+
+
+def test_range_estimates_require_explicit_numeric_override():
+    frame = pd.DataFrame({"Velocidade": ["Entre 61 a 120 mpbs", "Entre 121 a 180 mpbs"]})
+    with pytest.raises(ValueError, match="qualitativa"):
+        analyze_column(frame, "Velocidade", "quantitative_continuous")
+    result = analyze_column(frame, "Velocidade", "quantitative_continuous", allow_type_override=True)
+    assert result["grouping"]["source"] == "reported_intervals"
+    assert result["statistics"] is None
+    assert result["grouped_statistics"]["mean"] == 120.5

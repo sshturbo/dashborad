@@ -5,15 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Painel estatístico das respostas dos colaboradores da Fábrica de Luz.">
     <title>Dashboard de pesquisa — Fábrica de Luz</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='grouped-frequency-details-2026-11-18') }}">
-    <script src="{{ url_for('static', filename='js/waves.js', v='realistic-solar-2026-11-14') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/solar-system.js', v='realistic-solar-2026-11-14') }}" defer></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='shared-wave-background-2026-11-18') }}">
+    <script src="{{ url_for('static', filename='js/waves.js', v='shared-wave-background-2026-11-18') }}" defer></script>
     <script src="{{ url_for('static', filename='vendor/echarts/echarts.min.js', v='6.0.0') }}" defer></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='grouped-frequency-details-2026-11-18') }}" defer></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='response-format-classification-2026-11-18') }}" defer></script>
 </head>
 <body data-view="landing">
     <canvas id="waveBackground" class="wave-background" data-assets="{{ url_for('static', filename='img/waves/') }}" aria-hidden="true"></canvas>
-    <div id="solarSystem" class="solar-system" data-assets="{{ url_for('static', filename='img/solar-system/') }}" aria-hidden="true"><canvas class="solar-orbits"></canvas><canvas class="solar-bodies"></canvas></div>
     <div class="app-shell">
         <div class="app-workspace">
             <div class="workspace-heading" id="workspaceHeading" hidden>
@@ -26,7 +24,6 @@
                     <h1>dashboard <span class="landing-divider">|</span> <strong>pesquisa analytics</strong></h1>
                     <button id="startAnalysis" class="landing-start" type="button">Começar análise <span aria-hidden="true">→</span></button>
                 </div>
-                <p class="solar-credit">Sistema Solar · representação artística sem escala <span>Texturas: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener noreferrer">Solar System Scope</a> / NASA · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></span></p>
             </main>
             <div class="dashboard-layout" id="dashboardLayout" hidden>
                 <aside class="dashboard-sidebar" aria-label="Controles e resumo da análise">
@@ -55,7 +52,6 @@
                         <div class="ordinal-preview"><span id="ordinalSummary"></span><button id="editOrdinalOrder" type="button">Organizar</button></div>
                         <p class="ordinal-hint" id="ordinalOrderHint" aria-live="polite"></p>
                     </div>
-                    <label class="fld" id="secondaryField" hidden><span class="lb">Comparar com outra variável (opcional)</span><select id="secondaryColumn"></select></label>
                 </div>
                 <p class="hintline range-notice" id="rangeNotice" role="status" hidden></p>
                 <div class="settings-details">
@@ -170,6 +166,7 @@
             <div class="chart-head"><div><h2>Média, mediana, moda e quartis — com intervalo de classe</h2></div></div>
             <p id="groupedVariable" class="grouped-variable"></p><p id="groupedMethod" class="grouped-method"></p>
             <div class="kp" id="kgr"></div><div id="tgr"></div>
+            <p class="lg frequency-rounding-note" id="frequencyRoundingNote" hidden>Exibição arredondada; ≈ indica limites aproximados. Totais calculados com precisão completa.</p>
             <p class="lg" id="groupedMeasuresNote">Média estimada pelos pontos médios; mediana e quartis por interpolação das classes.</p><p class="na" id="na_sg" hidden></p>
         </section>
     </main>
