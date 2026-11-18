@@ -1446,28 +1446,34 @@ function renderGroupedTable(analysis) {
     const reported = analysis.grouping?.source === "reported_intervals";
     elements.groupedVariable.textContent = analysis.column;
     const method = reported ? "Faixas originais da planilha" : analysis.grouping?.method === "manual" ? "Classes definidas manualmente" : "Classes calculadas automaticamente";
-    elements.groupedMethod.textContent = `${method} · ${formatInteger(rows.length)} ${rows.length === 1 ? "classe" : "classes"} · ${formatInteger(analysis.valid_count)} respostas`;
+    const rangeCount = `${formatInteger(rows.length)} ${rows.length === 1 ? "classe" : "classes"}`;
+    const responseCount = `${formatInteger(analysis.valid_count)} respostas`;
+    const mobileHint = window.matchMedia("(max-width: 639px)").matches ? " · deslize a tabela para os lados para ver todas as colunas" : "";
+    elements.groupedMethod.textContent = `${method} · ${rangeCount} · ${responseCount}${mobileHint}`;
     elements.groupedMeasuresNote.textContent = reported && analysis.grouping?.note
         ? analysis.grouping.note
         : `${analysis.grouping?.note || ""} ${analysis.grouped_statistics?.note || "Média estimada pelos pontos médios; mediana e quartis por interpolação das classes."}`.trim();
     const table = document.createElement("table");
-    table.className = "reference-frequency-table";
-    table.setAttribute("aria-label", "Tabela de intervalos, frequência e frequência acumulada");
+    table.className = "reference-frequency-table grouped-detail-table";
+    table.setAttribute("aria-label", "Tabela detalhada de frequências, pontos médios e frequências acumuladas por classe");
     const head = table.createTHead().insertRow();
     const firstHeader = /\bidade[s]?\b|faixa\s+et[aá]ria/i.test(analysis.column) ? "Idades" : "Intervalos";
-    [firstHeader, "Frequência", "Frequência Acumulada"].forEach((label, index) => {
+    const headers = [
+        firstHeader,
+        "Limite inferior",
+        "Limite superior",
+        "Ponto médio (xi)",
+        "Frequência (fi)",
+        "Frequência relativa (%)",
+        "Frequência acumulada (Fac)",
+        "Frequência acumulada (%)",
+        "fi × xi",
+    ];
+    headers.forEach((label, index) => {
         const cell = document.createElement("th"); cell.scope = "col";
         const title = document.createElement("span"); title.className = "frequency-heading";
-        if (index === 2) {
-            title.append("Frequência", document.createElement("br"), "Acumulada");
-        } else title.textContent = label;
+        title.textContent = label;
         cell.appendChild(title);
-        if (index) {
-            const formula = document.createElement("span"); formula.className = "frequency-formula";
-            const symbol = document.createElement("i"); symbol.textContent = "f";
-            const subscript = document.createElement("sub"); subscript.textContent = index === 1 ? "i" : "ac";
-            formula.append("(", symbol, subscript, ")"); cell.appendChild(formula);
-        }
         head.appendChild(cell);
     });
     const body = table.createTBody();
@@ -1480,12 +1486,36 @@ function renderGroupedTable(analysis) {
         } else interval.textContent = row.value;
         interval.title = row.value;
         interval.setAttribute("aria-label", row.value);
-        [row.frequency, row.cumulative_frequency].forEach((value) => { tr.insertCell().textContent = formatInteger(value); });
+        const lower = tr.insertCell();
+        lower.textContent = row.lower === null || row.lower === undefined ? "—" : formatNumber(row.lower);
+        lower.title = "Limite inferior conhecido da classe";
+        const upper = tr.insertCell();
+        upper.textContent = row.upper === null || row.upper === undefined ? "—" : formatNumber(row.upper);
+        upper.title = "Limite superior conhecido da classe";
+        const midpoint = tr.insertCell();
+        midpoint.textContent = row.midpoint === null || row.midpoint === undefined ? "—" : formatNumber(row.midpoint);
+        midpoint.title = "Ponto médio xi; não definido para classes abertas";
+        tr.insertCell().textContent = formatInteger(row.frequency);
+        tr.insertCell().textContent = `${Number(row.percentage || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+        tr.insertCell().textContent = formatInteger(row.cumulative_frequency);
+        tr.insertCell().textContent = `${Number(row.cumulative_percentage || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+        const contribution = tr.insertCell();
+        contribution.textContent = row.midpoint === null || row.midpoint === undefined ? "—" : formatNumber(row.midpoint * row.frequency);
+        contribution.title = "Contribuição da classe à média estimada: frequência × ponto médio";
     });
     const footer = table.createTFoot().insertRow();
     const totalLabel = document.createElement("th"); totalLabel.scope = "row"; totalLabel.textContent = "TOTAL"; footer.appendChild(totalLabel);
+    footer.insertCell().textContent = "";
+    footer.insertCell().textContent = "";
+    footer.insertCell().textContent = "—";
     footer.insertCell().textContent = formatInteger(analysis.valid_count);
-    footer.insertCell();
+    footer.insertCell().textContent = "100%";
+    footer.insertCell().textContent = formatInteger(analysis.valid_count);
+    footer.insertCell().textContent = "100%";
+    const weightedTotal = analysis.grouped_statistics?.mean === null || analysis.grouped_statistics?.mean === undefined
+        ? "—"
+        : formatNumber(analysis.grouped_statistics.mean * analysis.valid_count);
+    footer.insertCell().textContent = weightedTotal;
     elements.tgr.appendChild(table);
 }
 
@@ -1535,7 +1565,7 @@ function renderDownloads(availability) {
         const stats = grouped.grouped_statistics;
         const head = ["Medida", "Valor"];
         const measures = [["Variável", analysis.column], ["Método das classes", grouped.grouping?.source === "reported_intervals" ? "Faixas originais da planilha" : grouped.grouping?.method || "automático"], ["n", grouped.valid_count], ["Média estimada", stats.mean], ["Mediana estimada", stats.median], ["Moda", stats.mode_note || stats.mode], ["Q1", stats.q1], ["Q2", stats.q2], ["Q3", stats.q3], ["Origem dos intervalos", grouped.grouping?.note || ""], ["Observação", stats.note]];
-        return [head, ...measures, ["", ""], ["Classe", "Limite inferior", "Limite superior", "Ponto médio (xi)", "fi", "Fi", "%"], ...grouped.frequency_table.map((row) => [row.value, row.lower, row.upper, row.midpoint, row.frequency, row.cumulative_frequency, row.percentage]), ["Total", "", "", "", grouped.valid_count, grouped.valid_count, 100]];
+        return [head, ...measures, ["", ""], ["Classe", "Limite inferior", "Limite superior", "Ponto médio (xi)", "fi", "Frequência relativa (%)", "Fi", "Frequência acumulada (%)", "fi × xi"], ...grouped.frequency_table.map((row) => [row.value, row.lower, row.upper, row.midpoint, row.frequency, row.percentage, row.cumulative_frequency, row.cumulative_percentage, row.midpoint === null || row.midpoint === undefined ? null : row.frequency * row.midpoint]), ["Total", "", "", "", grouped.valid_count, 100, grouped.valid_count, 100, grouped.grouped_statistics.mean === null ? null : grouped.grouped_statistics.mean * grouped.valid_count]];
     } });
 
     specs.forEach((spec) => {
