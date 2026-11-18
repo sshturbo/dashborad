@@ -11,6 +11,8 @@ load_dotenv(BASE_DIR / ".env")
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-me")
     DEBUG = os.getenv("FLASK_DEBUG", "0") == "1"
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+    LOG_FILE = Path(os.getenv("LOG_FILE", str(BASE_DIR / "instance" / "logs" / "app.log")))
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH_MB", "16")) * 1024 * 1024
     MAX_DATASET_ROWS = int(os.getenv("MAX_DATASET_ROWS", "100000"))
     UPLOAD_FOLDER = BASE_DIR / "instance" / "uploads"

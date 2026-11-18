@@ -10,6 +10,8 @@ venv/
 .DS_Store
 instance/uploads/*
 !instance/uploads/.gitkeep
+instance/logs/*
+!instance/logs/.gitkeep
 data/*.xls
 data/*.xlsx
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from app.services.file_service import (
@@ -24,6 +25,51 @@ api_bp = Blueprint("api", __name__)
 @api_bp.get("/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@api_bp.post("/client-errors")
+def report_client_error():
+    if request.content_length is not None and request.content_length > 4096:
+        return _error("O diagnóstico enviado excede o limite.", 413)
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or payload.get("event") != "api_fetch_failed":
+        return _error("O diagnóstico enviado é inválido.", 400)
+
+    endpoint = payload.get("endpoint")
+    method = payload.get("method")
+    attempt_id = payload.get("attempt_id")
+    error_name = payload.get("error_name")
+    online = payload.get("online")
+    health_reachable = payload.get("health_reachable")
+    mobile = payload.get("mobile")
+    if (
+        not isinstance(endpoint, str)
+        or not re.fullmatch(r"/api/[A-Za-z0-9_./-]{1,180}", endpoint)
+        or ".." in endpoint
+        or method not in {"GET", "POST", "DELETE"}
+        or not isinstance(attempt_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", attempt_id)
+        or not isinstance(error_name, str)
+        or not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", error_name)
+        or not isinstance(online, bool)
+        or health_reachable not in (True, False, None)
+        or not isinstance(mobile, bool)
+    ):
+        return _error("O diagnóstico enviado é inválido.", 400)
+
+    current_app.logger.warning(
+        "client_api_failure request_id=%s attempt_id=%s endpoint=%s method=%s online=%s health_reachable=%s mobile=%s error_name=%s",
+        getattr(g, "request_id", "-"),
+        attempt_id,
+        endpoint,
+        method,
+        online,
+        health_reachable,
+        mobile,
+        error_name,
+    )
+    return jsonify({"logged": True, "request_id": getattr(g, "request_id", "-")}), 202
 
 
 @api_bp.post("/datasets")
@@ -50,7 +96,11 @@ def upload_dataset():
             }
         ), 201
     except (SpreadsheetError, ValueError) as exc:
-        current_app.logger.warning("Upload de planilha rejeitado: %s", exc)
+        current_app.logger.warning(
+            "upload_rejected request_id=%s error_type=%s",
+            getattr(g, "request_id", "-"),
+            type(exc).__name__,
+        )
         if path and path.exists():
             path.unlink()
         return _error(str(exc), 400)
@@ -70,6 +120,11 @@ def get_dataset(dataset_id: str):
     except DatasetNotFoundError as exc:
         return _error(str(exc), 404)
     except (SpreadsheetError, ValueError) as exc:
+        current_app.logger.warning(
+            "dataset_read_failed request_id=%s error_type=%s",
+            getattr(g, "request_id", "-"),
+            type(exc).__name__,
+        )
         return _error(str(exc), 400)
 
 
@@ -99,6 +154,11 @@ def get_dataset_rows(dataset_id: str):
     except DatasetNotFoundError as exc:
         return _error(str(exc), 404)
     except (SpreadsheetError, ValueError, TypeError) as exc:
+        current_app.logger.warning(
+            "dataset_rows_failed request_id=%s error_type=%s",
+            getattr(g, "request_id", "-"),
+            type(exc).__name__,
+        )
         return _error(str(exc), 400)
 
 
@@ -142,13 +202,22 @@ def analyze_dataset():
     except DatasetNotFoundError as exc:
         return _error(str(exc), 404)
     except (SpreadsheetError, ValueError, TypeError) as exc:
+        current_app.logger.warning(
+            "analysis_rejected request_id=%s error_type=%s",
+            getattr(g, "request_id", "-"),
+            type(exc).__name__,
+        )
         return _error(str(exc), 400)
 
 
 @api_bp.app_errorhandler(RequestEntityTooLarge)
 def file_too_large(_error_details):
     max_mb = current_app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
-    current_app.logger.warning("Upload de planilha excedeu o limite configurado de %s MB.", max_mb)
+    current_app.logger.warning(
+        "upload_too_large request_id=%s max_upload_mb=%s",
+        getattr(g, "request_id", "-"),
+        max_mb,
+    )
     return _error(f"O arquivo excede o limite de {max_mb} MB.", 413)
 
 

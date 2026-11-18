@@ -1937,46 +1937,79 @@ async function apiFetch(path, options) {
         return await fetch(path, options);
     } catch (error) {
         if (error.name === "AbortError") throw error;
+        const attemptId = window.crypto?.randomUUID?.()
+            || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const endpoint = path.split("?")[0];
+        const method = (options?.method || "GET").toUpperCase();
+        const online = navigator.onLine !== false;
+        const mobile = window.matchMedia("(pointer: coarse)").matches;
         if (navigator.onLine === false) {
-            console.error("Falha de rede na requisição da API", {
-                endpoint: path.split("?")[0],
-                method: (options?.method || "GET").toUpperCase(),
-                online: false,
-                cause: error.message,
-            });
+            console.error("Falha de rede na requisição da API", { attemptId, endpoint, method, online, mobile, cause: error.message });
+            void reportClientFailure({ attempt_id: attemptId, endpoint, method, online, health_reachable: false, mobile, error_name: error.name });
             throw new Error("O dispositivo está sem conexão de rede. Reconecte-se e tente novamente.");
         }
         const hostname = window.location.hostname.replace(/^\[|\]$/g, "").toLowerCase();
         const localServer = hostname === "localhost" || hostname === "::1" || hostname.endsWith(".local")
             || /^127\./.test(hostname) || /^10\./.test(hostname) || /^192\.168\./.test(hostname)
             || /^172\.(?:1[6-9]|2\d|3[01])\./.test(hostname) || /^169\.254\./.test(hostname);
-        const healthReachable = localServer ? null : await probeApiHealth();
-        console.error("Falha de rede na requisição da API", {
-            endpoint: path.split("?")[0],
-            method: (options?.method || "GET").toUpperCase(),
-            online: navigator.onLine,
-            healthReachable,
-            cause: error.message,
-        });
+        const healthReachable = await probeApiHealth();
+        const clientLog = {
+            attempt_id: attemptId,
+            endpoint,
+            method,
+            online,
+            health_reachable: healthReachable,
+            mobile,
+            error_name: error.name,
+        };
+        console.error("Falha de rede na requisição da API", { ...clientLog, cause: error.message });
+        const serverRequestId = await reportClientFailure(clientLog);
+        const reference = `Referência: ${serverRequestId || attemptId}.`;
         if (localServer) {
-            throw new Error(`Não foi possível conectar ao servidor em ${window.location.origin}. Verifique se o sistema continua em execução. No celular, use o endereço do computador na mesma rede Wi-Fi.`);
+            throw new Error(`Não foi possível conectar ao servidor em ${window.location.origin}. Verifique se o sistema continua em execução. No celular, use o endereço do computador na mesma rede Wi-Fi. ${reference}`);
         }
         if (healthReachable) {
             throw new Error(
                 "O servidor está ativo, mas interrompeu esta solicitação antes de responder. "
-                + "Verifique os limites de envio da hospedagem e a rede do celular."
+                + `Verifique os limites de envio da hospedagem e a rede do celular. ${reference}`
             );
         }
         throw new Error(
             `Não foi possível conectar à API hospedada em ${window.location.origin}. `
-            + `Teste ${window.location.origin}/api/health no celular e tente novamente em outra rede.`
+            + `Teste ${window.location.origin}/api/health no celular e tente novamente em outra rede. ${reference}`
         );
+    }
+}
+
+async function reportClientFailure(details) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 2000);
+    try {
+        const response = await fetch("/api/client-errors", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event: "api_fetch_failed", ...details }),
+            keepalive: true,
+            signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+        console.info("Falha da API registrada", { attemptId: details.attempt_id, requestId: result.request_id });
+        return result.request_id || null;
+    } catch (error) {
+        console.warn("Não foi possível enviar o diagnóstico ao servidor", {
+            attemptId: details.attempt_id,
+            cause: error.message,
+        });
+        return null;
+    } finally {
+        window.clearTimeout(timeout);
     }
 }
 
 async function probeApiHealth() {
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 3000);
+    const timeout = window.setTimeout(() => controller.abort(), 1800);
     try {
         const response = await fetch("/api/health", { cache: "no-store", signal: controller.signal });
         if (!response.ok) return false;
