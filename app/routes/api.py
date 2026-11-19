@@ -45,6 +45,8 @@ def report_client_error():
     mobile = payload.get("mobile")
     browser = payload.get("browser")
     platform = payload.get("platform")
+    error_message = payload.get("error_message", "")
+    stage = payload.get("stage", "fetch")
     upload_bytes = payload.get("upload_bytes")
     upload_mime = payload.get("upload_mime")
     upload_extension = payload.get("upload_extension")
@@ -62,6 +64,11 @@ def report_client_error():
         or not isinstance(mobile, bool)
         or browser not in {"chrome", "samsung_internet", "edge", "firefox", "safari", "other"}
         or platform not in {"android", "ios", "desktop"}
+        or not isinstance(error_message, str)
+        or len(error_message) > 160
+        or any(character in error_message for character in "\r\n\t")
+        or not isinstance(stage, str)
+        or stage not in {"file_read", "fetch"}
         or (upload_bytes is not None and (type(upload_bytes) is not int or upload_bytes < 0))
         or not isinstance(upload_mime, str)
         or not re.fullmatch(r"[A-Za-z0-9.+/-]{1,100}", upload_mime)
@@ -71,7 +78,7 @@ def report_client_error():
         return _error("O diagnóstico enviado é inválido.", 400)
 
     current_app.logger.warning(
-        "client_api_failure request_id=%s attempt_id=%s endpoint=%s method=%s online=%s health_reachable=%s mobile=%s platform=%s browser=%s upload_bytes=%s upload_mime=%s upload_extension=%s error_name=%s",
+        "client_api_failure request_id=%s attempt_id=%s endpoint=%s method=%s online=%s health_reachable=%s mobile=%s platform=%s browser=%s upload_bytes=%s upload_mime=%s upload_extension=%s stage=%s error_name=%s error_message=%s",
         getattr(g, "request_id", "-"),
         attempt_id,
         endpoint,
@@ -84,7 +91,9 @@ def report_client_error():
         upload_bytes,
         upload_mime,
         upload_extension,
+        stage,
         error_name,
+        error_message or "-",
     )
     return jsonify({"logged": True, "request_id": getattr(g, "request_id", "-")}), 202
 

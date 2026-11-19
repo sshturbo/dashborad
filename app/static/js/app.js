@@ -20,6 +20,7 @@ const state = {
     tableRowCount: 0,
     tableColumns: [],
     tableSheet: null,
+    uploading: false,
     typeOverrides: {},
     orderOverrides: {},
     ordinalDraft: [],
@@ -202,26 +203,25 @@ function syncPageContext() {
 }
 
 async function uploadFile(file) {
-    if (!file) return;
+    if (!file || state.uploading) return;
     if (!/\.(xls|xlsx|xlsm|csv)$/i.test(file.name)) {
         setUploadStatus("Formato inválido. Selecione um arquivo .xls, .xlsx, .xlsm ou .csv.", true);
         elements.file.value = "";
         return;
     }
     const uploadLimit = Number(elements.file.dataset.maxUploadBytes);
-    // O servidor ainda valida o tamanho completo do formulário multipart.
-    if (uploadLimit > 0 && file.size >= uploadLimit) {
-        setUploadStatus(`O arquivo é maior que o limite de envio de ${formatBytes(uploadLimit)}. Selecione uma planilha menor.`, true);
-        elements.file.value = "";
-        return;
-    }
-
     const previousDataset = state.datasetId;
-    const body = new FormData();
-    body.append("file", file);
-    setLoading(true);
-    setUploadStatus("Enviando e lendo a planilha pela aplicação Python…");
+    state.uploading = true;
     try {
+        // Inicie a leitura ainda no evento change/drop, antes de consultar file.size.
+        // Alguns provedores do Android retornam metadados instáveis ao fetch.
+        const preparedFile = prepareUploadFile(file, uploadLimit);
+        setLoading(true);
+        setUploadStatus("Preparando a planilha para envio…");
+        const upload = await preparedFile;
+        const body = new FormData();
+        body.append("file", upload, upload.name);
+        setUploadStatus("Enviando e lendo a planilha…");
         const response = await apiFetch("/api/datasets", { method: "POST", body });
         const data = await parseResponse(response);
         state.datasetId = data.dataset_id;
@@ -237,7 +237,7 @@ async function uploadFile(file) {
         ++state.tableRequestId;
         if (previousDataset && previousDataset !== state.datasetId) deleteDatasetOnServer(previousDataset);
         elements.fileName.textContent = file.name;
-        elements.fileMeta.textContent = `${formatBytes(file.size)} · ${state.sheets.length} aba(s)`;
+        elements.fileMeta.textContent = `${formatBytes(upload.size)} · ${state.sheets.length} aba(s)`;
         elements.datasetSettings.hidden = false;
         elements.emptyDash.hidden = true;
         elements.flt.hidden = state.activeTab !== "dash";
@@ -250,9 +250,55 @@ async function uploadFile(file) {
     } catch (error) {
         setUploadStatus(error.message, true);
     } finally {
+        state.uploading = false;
         setLoading(false);
         elements.file.value = "";
     }
+}
+
+function prepareUploadFile(file, uploadLimit) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        const sizeError = () => new Error(`O arquivo é maior que o limite de envio de ${formatBytes(uploadLimit)}. Selecione uma planilha menor.`);
+        let exceededLimit = false;
+        reader.onprogress = (event) => {
+            if (uploadLimit > 0 && (event.loaded >= uploadLimit || (event.lengthComputable && event.total >= uploadLimit))) {
+                exceededLimit = true;
+                reader.abort();
+            }
+        };
+        reader.onabort = () => reject(exceededLimit ? sizeError() : new Error("A leitura da planilha foi cancelada. Selecione o arquivo novamente."));
+        reader.onerror = () => {
+            const details = {
+                ...clientEnvironment(),
+                attempt_id: createAttemptId(),
+                endpoint: "/api/datasets", method: "POST", stage: "file_read",
+                online: navigator.onLine !== false, health_reachable: null,
+                error_name: reader.error?.name || "NotReadableError",
+                error_message: String(reader.error?.message || "Falha ao ler o arquivo selecionado").replace(/[\r\n\t]+/g, " ").slice(0, 160),
+                upload_bytes: null,
+                upload_mime: (file.type || "unknown").slice(0, 100),
+                upload_extension: (file.name.match(/\.([a-z0-9]{1,10})$/i)?.[1] || "unknown").toLowerCase(),
+            };
+            console.error("Não foi possível ler a planilha antes do envio", details);
+            void reportClientFailure(details);
+            reject(new Error("O navegador não conseguiu ler o arquivo selecionado. Salve uma cópia em Downloads no aparelho e selecione essa cópia novamente."));
+        };
+        reader.onload = () => {
+            const bytes = reader.result;
+            if (uploadLimit > 0 && bytes.byteLength >= uploadLimit) {
+                reject(sizeError());
+                return;
+            }
+            if (!bytes.byteLength) {
+                reject(new Error("O arquivo está vazio. Selecione uma planilha com dados."));
+                return;
+            }
+            // Copiar os bytes elimina a dependência do arquivo content:// do Android.
+            resolve(new File([bytes], file.name, { type: file.type || "application/octet-stream" }));
+        };
+        reader.readAsArrayBuffer(file);
+    });
 }
 
 async function loadSheet(sheet) {
@@ -1929,12 +1975,27 @@ async function deleteDatasetOnServer(datasetId) {
     try { await apiFetch(`/api/datasets/${datasetId}`, { method: "DELETE" }); } catch (_) { /* a tela ainda pode ser limpa */ }
 }
 
+function createAttemptId() {
+    return window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function clientEnvironment() {
+    const userAgent = navigator.userAgent;
+    const browser = /SamsungBrowser/i.test(userAgent) ? "samsung_internet"
+        : /Edg/i.test(userAgent) ? "edge"
+            : /Chrome|CriOS/i.test(userAgent) ? "chrome"
+                : /Firefox|FxiOS/i.test(userAgent) ? "firefox"
+                    : /Safari/i.test(userAgent) ? "safari" : "other";
+    const platform = /Android/i.test(userAgent) ? "android"
+        : /iPhone|iPad|iPod/i.test(userAgent) ? "ios" : "desktop";
+    return { browser, platform, mobile: platform !== "desktop" || window.matchMedia("(pointer: coarse)").matches };
+}
+
 async function apiFetch(path, options) {
     if (!["http:", "https:"].includes(window.location.protocol)) {
         throw new Error("Abra o sistema pelo endereço do servidor Python, começando com http:// ou https://. Abrir o arquivo HTML diretamente não permite enviar a planilha.");
     }
-    const attemptId = window.crypto?.randomUUID?.()
-        || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const attemptId = createAttemptId();
     const method = (options?.method || "GET").toUpperCase();
     const headers = new Headers(options?.headers || {});
     headers.set("X-Client-Attempt-ID", attemptId);
@@ -1948,26 +2009,20 @@ async function apiFetch(path, options) {
             upload_extension: (uploadFile.name.match(/\.([a-z0-9]{1,10})$/i)?.[1] || "unknown").toLowerCase(),
         }
         : { upload_bytes: null, upload_mime: "none", upload_extension: "none" };
-    const userAgent = navigator.userAgent;
-    const browser = /SamsungBrowser/i.test(userAgent) ? "samsung_internet"
-        : /Edg/i.test(userAgent) ? "edge"
-            : /Chrome|CriOS/i.test(userAgent) ? "chrome"
-                : /Firefox|FxiOS/i.test(userAgent) ? "firefox"
-                    : /Safari/i.test(userAgent) ? "safari" : "other";
-    const platform = /Android/i.test(userAgent) ? "android"
-        : /iPhone|iPad|iPod/i.test(userAgent) ? "ios" : "desktop";
+    const { browser, platform, mobile } = clientEnvironment();
     try {
         return await fetch(path, { ...options, headers });
     } catch (error) {
         if (error.name === "AbortError") throw error;
         const endpoint = path.split("?")[0];
         const online = navigator.onLine !== false;
-        const mobile = platform !== "desktop" || window.matchMedia("(pointer: coarse)").matches;
         if (navigator.onLine === false) {
             console.error("Falha de rede na requisição da API", { attemptId, endpoint, method, online, mobile, cause: error.message });
             void reportClientFailure({
                 attempt_id: attemptId, endpoint, method, online, health_reachable: false, mobile,
-                browser, platform, error_name: error.name, ...uploadDetails,
+                browser, platform, stage: "fetch", error_name: error.name,
+                error_message: String(error.message || "").replace(/[\r\n\t]+/g, " ").slice(0, 160),
+                ...uploadDetails,
             });
             throw new Error("O dispositivo está sem conexão de rede. Reconecte-se e tente novamente.");
         }
@@ -1980,12 +2035,14 @@ async function apiFetch(path, options) {
             attempt_id: attemptId,
             endpoint,
             method,
+            stage: "fetch",
             online,
             health_reachable: healthReachable,
             mobile,
             browser,
             platform,
             error_name: error.name,
+            error_message: String(error.message || "").replace(/[\r\n\t]+/g, " ").slice(0, 160),
             ...uploadDetails,
         };
         console.error("Falha de rede na requisição da API", { ...clientLog, cause: error.message });
@@ -1996,8 +2053,8 @@ async function apiFetch(path, options) {
         }
         if (healthReachable) {
             throw new Error(
-                "O servidor está ativo, mas interrompeu esta solicitação antes de responder. "
-                + `Verifique os limites de envio da hospedagem e a rede do celular. ${reference}`
+                "O servidor está acessível, mas o navegador não conseguiu concluir o envio ou receber a resposta. "
+                + `Tente novamente. ${reference}`
             );
         }
         throw new Error(
